@@ -30,7 +30,7 @@ Habilita Drive API y Sheets API en Google Cloud. Crea un cliente OAuth de aplica
 
 ## Despliegue
 
-1. Crea un namespace KV y reemplaza `REPLACE_WITH_KV_NAMESPACE_ID` en `wrangler.toml`.
+1. El namespace KV `ticketslicy-state` ya está creado y vinculado como `STATE` en `wrangler.toml`.
 2. Configura los diez nombres indicados arriba con `wrangler secret put` o en el panel de Cloudflare. `OPENAI_MODEL` es configurable; el valor inicial es `gpt-4.1-mini` y debe verificarse con tickets reales antes de producción.
 3. Ejecuta `npm run deploy` o conecta este repositorio en Cloudflare Workers Builds a la rama `main`; comando de build `npm ci` y comando de deploy `npx wrangler deploy`. La conexión se autoriza en los paneles de Cloudflare y GitHub; no hace falta guardar un token de GitHub en el repositorio.
 4. Tras desplegar y verificar las variables, configura `WORKER_URL` con la URL HTTPS pública del Worker y ejecuta `npm run webhook:register` con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_SECRET` en el entorno. El script registra `/telegram` y el secreto de webhook en Telegram.
