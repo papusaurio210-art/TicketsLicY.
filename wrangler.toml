@@ -1,0 +1,11 @@
+name = "ticketslicy-bot"
+main = "src/index.ts"
+compatibility_date = "2026-10-20"
+
+# Fill the real namespace ID before deploying. Local `wrangler dev` uses local KV.
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+OPENAI_MODEL = "gpt-4.1-mini"
