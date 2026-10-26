@@ -47,6 +47,20 @@ export async function uploadImage(env: Env, bytes: ArrayBuffer, mime: string, ti
   return { id: uploaded.id, link: uploaded.webViewLink ?? `https://drive.google.com/file/d/${uploaded.id}/view` };
 }
 
+export async function relocateImage(env: Env, op: Operation): Promise<void> {
+  const [year, month] = op.ticket.fecha.split('-');
+  const yearId = await ensureFolder(env, env.GOOGLE_FOLDER_ID, year);
+  const monthId = await ensureFolder(env, yearId, month);
+  const file = await google<{ parents?: string[]; mimeType?: string }>(env, `https://www.googleapis.com/drive/v3/files/${op.fileId}?fields=parents,mimeType`, {});
+  const removeParents = (file.parents ?? []).join(',');
+  const mime = file.mimeType === 'image/png' ? 'png' : 'jpg';
+  const name = `${op.ticket.fecha}_${op.ticket.comercio.replace(/[^\p{L}\p{N}-]+/gu, '_').slice(0, 40)}_${op.ticket.total}_${op.hash.slice(0, 8)}.${mime}`;
+  const location = file.parents?.includes(monthId) ? '' : `?addParents=${monthId}&removeParents=${removeParents}`;
+  await google(env, `https://www.googleapis.com/drive/v3/files/${op.fileId}${location}`, {
+    method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }),
+  });
+}
+
 export const headers = ['Fecha captura', 'Fecha ticket', 'Comercio', 'RFC', 'Folio', 'Moneda', 'Subtotal', 'IVA', 'Propina', 'Total', 'Método de pago', 'Categoría', 'Confianza', 'Estado', 'Link Drive', 'Quién lo envió', 'ID de operación', 'Hash'];
 
 function rowValues(op: Operation, link: string): Array<string | number> {

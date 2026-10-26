@@ -8,7 +8,7 @@ const ticket: Ticket = {
   metodo_pago: 'Tarjeta', ultimos_4_tarjeta: '1234', categoria: 'Insumos', confianza: 0.95, notas: null,
 };
 
-function fixture() {
+function fixture(override: Partial<Ticket> = {}) {
   const state = new Map<string, string>();
   const env = {
     STATE: {
@@ -25,6 +25,7 @@ function fixture() {
   } satisfies Env;
   const calls: string[] = [];
   const messages: string[] = [];
+  const markups: object[] = [];
   let uploadedHash = '';
   let sheetHasRow = false;
   let failAppendOnce = false;
@@ -34,19 +35,22 @@ function fixture() {
     const url = String(input);
     calls.push(url);
     if (url.endsWith('/sendMessage')) {
-      messages.push(JSON.parse(String(init?.body)).text);
+      const payload = JSON.parse(String(init?.body));
+      messages.push(payload.text);
+      if (payload.reply_markup) markups.push(payload.reply_markup);
       return json({ ok: true, result: { message_id: 1 } });
     }
     if (url.endsWith('/answerCallbackQuery')) return json({ ok: true, result: true });
     if (url.endsWith('/getFile')) return json({ ok: true, result: { file_path: 'photos/photo.jpg', file_size: 4 } });
     if (url.includes('/file/bot')) return new Response(new Uint8Array([1, 2, 3, 4]));
-    if (url.includes('/v1/responses')) return json({ output: [{ content: [{ type: 'output_text', text: JSON.stringify(ticket) }] }] });
+    if (url.includes('/v1/responses')) return json({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ ...ticket, ...override }) }] }] });
     if (url.includes('oauth2.googleapis.com/token')) return json({ access_token: 'token', expires_in: 3600 });
     if (url.includes('/drive/v3/files?q=')) return json({ files: [] });
     if (url.includes('/drive/v3/files?fields=id')) return json({ id: 'folder' });
     if (url.includes('/upload/drive/v3/files')) return json({ id: 'image', webViewLink: 'https://drive.google.com/file/d/image/view' });
-    if (url.includes('/drive/v3/files/image?fields=parents')) return json({ parents: ['folder'] });
+    if (url.includes('/drive/v3/files/image?fields=parents')) return json({ parents: ['folder'], mimeType: 'image/jpeg' });
     if (url.includes('/drive/v3/files/image?addParents=')) return json({ id: 'image' });
+    if (url.endsWith('/drive/v3/files/image') && init?.method === 'PATCH') return json({ id: 'image' });
     if (url.includes('/values/Tickets!R:R')) return json({ values: sheetHasRow ? [['Hash'], [uploadedHash]] : [['Hash']] });
     if (url.includes('/values/Tickets!A1:R?')) return json({ values: sheetRows });
     if (url.includes('/values/Tickets!B2:N2')) {
@@ -74,7 +78,7 @@ function fixture() {
     return response;
   }
   const photo = (updateId: number) => send({ update_id: updateId, message: { message_id: updateId, chat: { id: 123 }, from: { id: 123 }, photo: [{ file_id: 'photo' }] } });
-  return { state, calls, messages, fetchMock, photo, send, failNextAppend: () => { failAppendOnce = true; } };
+  return { state, calls, messages, markups, fetchMock, photo, send, failNextAppend: () => { failAppendOnce = true; } };
 }
 
 describe('flujo de foto', () => {
@@ -112,7 +116,10 @@ describe('flujo de foto', () => {
       await f.send({ update_id: 24, message: { message_id: 24, chat: { id: 123 }, from: { id: 123 }, text: '/total_mes' } });
       expect(f.messages.at(-1)).toContain('116.00 MXN');
       await f.send({ update_id: 21, callback_query: { id: 'callback1', from: { id: 123 }, data: `edit:${id}`, message: { chat: { id: 123 }, message_id: 1 } } });
-      await f.send({ update_id: 22, message: { message_id: 22, chat: { id: 123 }, from: { id: 123 }, text: 'total=117' } });
+      expect(f.messages.at(-1)).toBe('¿Qué dato quieres corregir?');
+      expect(JSON.stringify(f.markups.at(-1))).toContain(`field:${id}:total`);
+      await f.send({ update_id: 26, callback_query: { id: 'callback3', from: { id: 123 }, data: `field:${id}:total`, message: { chat: { id: 123 }, message_id: 1 } } });
+      await f.send({ update_id: 22, message: { message_id: 22, chat: { id: 123 }, from: { id: 123 }, text: '117' } });
       expect(JSON.parse(f.state.get(`op:${id}`)!).ticket.total).toBe(117);
       await f.send({ update_id: 23, callback_query: { id: 'callback2', from: { id: 123 }, data: `delete:${id}`, message: { chat: { id: 123 }, message_id: 1 } } });
       expect(JSON.parse(f.state.get(`op:${id}`)!).status).toBe('Eliminado');
@@ -120,6 +127,27 @@ describe('flujo de foto', () => {
       await f.send({ update_id: 25, message: { message_id: 25, chat: { id: 123 }, from: { id: 123 }, text: '/total_mes' } });
       expect(f.messages.at(-1)).toBe(`No hay tickets para ${new Date().toISOString().slice(0, 7)}.`);
     } finally { f.fetchMock.mockRestore(); }
+  });
+
+  it('señala un año sospechoso y permite corregir la fecha con un mensaje sencillo', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-26T18:00:00Z'));
+    const f = fixture({ fecha: '2025-10-21' });
+    try {
+      await f.photo(40);
+      const id = [...f.state.keys()].find(key => key.startsWith('op:'))!.slice(3);
+      expect(f.messages.at(-1)).toContain('Revisa el año');
+      await f.send({ update_id: 41, callback_query: { id: 'edit-date', from: { id: 123 }, data: `edit:${id}`, message: { chat: { id: 123 }, message_id: 1 } } });
+      await f.send({ update_id: 42, callback_query: { id: 'select-date', from: { id: 123 }, data: `field:${id}:fecha`, message: { chat: { id: 123 }, message_id: 1 } } });
+      expect(f.messages.at(-1)).toContain('21/10/2026');
+      await f.send({ update_id: 43, message: { message_id: 43, chat: { id: 123 }, from: { id: 123 }, text: '21/10/2026' } });
+      expect(JSON.parse(f.state.get(`op:${id}`)!).ticket.fecha).toBe('2026-10-21');
+      expect(f.calls.some(url => url.endsWith('/drive/v3/files/image') || url.includes('/drive/v3/files/image?addParents='))).toBe(true);
+      expect(f.messages.at(-1)).toContain('Fecha: 21/10/2026');
+      expect(f.messages.at(-1)).not.toContain('Revisa el año');
+      await f.send({ update_id: 44, callback_query: { id: 'confirm-date', from: { id: 123 }, data: `ok:${id}`, message: { chat: { id: 123 }, message_id: 1 } } });
+      expect(JSON.parse(f.state.get(`op:${id}`)!).status).toBe('OK');
+    } finally { f.fetchMock.mockRestore(); vi.useRealTimers(); }
   });
 
   it('busca en Sheets y no muestra a otro usuario los tickets ajenos', async () => {

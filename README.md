@@ -14,7 +14,7 @@ Cada chat autorizado ve solo los tickets que envió. Las consultas leen Google S
 - `/buscar mercado`: busca en comercio, folio o categoría y muestra hasta cinco resultados.
 - `/buscar 2026-09`: muestra tickets de ese mes.
 
-Las búsquedas son comandos concretos; el bot aún no interpreta preguntas en lenguaje natural.
+Las búsquedas son comandos concretos; el bot aún no interpreta preguntas en lenguaje natural. El mensaje inicial pide solo una foto. Después de registrar el ticket, el botón **Corregir** muestra los datos editables: se elige uno y se envía el valor nuevo sin escribir `campo=valor`. La fecha acepta `DD/MM/AAAA` o `AAAA-MM-DD`; al cambiarla, la imagen se mueve a la carpeta correspondiente en Drive. Una fecha del año anterior cercana al día actual se señala para revisar el año, sin modificarla automáticamente.
 
 ## Desarrollo local
 

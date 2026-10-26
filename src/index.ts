@@ -1,14 +1,31 @@
 import { sha256 } from './http';
-import { appendTicket, findRowByHash, moveToTrash, readTickets, updateTicket, uploadImage } from './google';
+import { appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, updateTicket, uploadImage } from './google';
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
-import { validateTicket } from './ticket';
-import { allowedChat, answerCallback, downloadPhoto, operationButtons, sendMessage, ticketSummary } from './telegram';
+import { categories, validateTicket } from './ticket';
+import { allowedChat, answerCallback, downloadPhoto, editButtons, operationButtons, sendMessage, ticketSummary } from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
 
 const day = 86_400;
 const editFields = new Set<keyof Ticket>(['comercio', 'fecha', 'total', 'subtotal', 'iva', 'propina', 'categoria', 'metodo_pago']);
+type PendingEdit = { id: string; field: keyof Ticket };
+const editLabels: Record<string, string> = { comercio: 'el comercio', fecha: 'la fecha', total: 'el total', subtotal: 'el subtotal', iva: 'el IVA', propina: 'la propina', categoria: 'la categoría', metodo_pago: 'el método de pago' };
 class PartialSaveError extends Error {}
+
+function correctionValue(field: keyof Ticket, input: string): string | number {
+  const value = input.trim();
+  if (field === 'fecha') {
+    const match = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+    return match ? `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}` : value;
+  }
+  if (['total', 'subtotal', 'iva', 'propina'].includes(field)) {
+    if (!/^\d+(?:[.,]\d{1,2})?$/.test(value)) throw new Error('Escribe un importe válido, por ejemplo 458.50.');
+    return Number(value.replace(',', '.'));
+  }
+  if (!value) throw new Error('Escribe un valor para guardar la corrección.');
+  if (field === 'categoria') return categories.find(category => category.toLocaleLowerCase('es') === value.toLocaleLowerCase('es')) ?? value;
+  return value;
+}
 
 async function semanticKey(ticket: Ticket): Promise<string | null> {
   if (!ticket.folio || ticket.total === null) return null;
@@ -64,8 +81,17 @@ async function handlePhoto(env: Env, chatId: number, userId: number, fileId: str
 }
 
 async function handleText(env: Env, chatId: number, text: string): Promise<void> {
-  if (text.startsWith('/start') || text.startsWith('/ayuda')) {
-    await sendMessage(env, chatId, 'Envíame una foto de un ticket. Consultas: /ultimos, /total_mes [AAAA-MM], /buscar <comercio, folio, categoría o AAAA-MM>. Solo ves tus tickets. Para corregir usa el botón del registro.');
+  if (text.startsWith('/start')) {
+    await sendMessage(env, chatId, '📸 Envíame una foto clara de tu ticket. Al registrarlo, podrás revisar y corregir los datos.');
+    return;
+  }
+  if (text.startsWith('/ayuda')) {
+    await sendMessage(env, chatId, '📸 Envíame una foto de tu ticket. Para consultar solo tus registros, escribe /ultimos, /total_mes o /buscar seguido del comercio. Si algo sale mal, toca Corregir en el ticket.');
+    return;
+  }
+  if (text.startsWith('/cancelar')) {
+    await env.STATE.delete(`pending:${chatId}`);
+    await sendMessage(env, chatId, 'Corrección cancelada.');
     return;
   }
   const command = text.trim().split(/\s+/, 1)[0];
@@ -86,43 +112,66 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
     }
     return;
   }
-  const pending = await env.STATE.get<string>(`pending:${chatId}`);
-  if (!pending) { await sendMessage(env, chatId, 'Envíame una foto de un ticket o escribe /ayuda.'); return; }
-  const match = text.match(/^([a-z_]+)\s*=\s*(.+)$/i);
-  if (!match || !editFields.has(match[1] as keyof Ticket)) { await sendMessage(env, chatId, 'Escribe campo=valor. Campos: comercio, fecha, total, subtotal, iva, propina, categoria, metodo_pago.'); return; }
-  const op = await env.STATE.get<Operation>(`op:${pending}`, 'json');
+  const pending = await env.STATE.get<PendingEdit>(`pending:${chatId}`, 'json');
+  if (!pending || !pending.id || !editFields.has(pending.field)) { await sendMessage(env, chatId, '📸 Envíame una foto de un ticket o escribe /ayuda.'); return; }
+  const op = await env.STATE.get<Operation>(`op:${pending.id}`, 'json');
   if (!op || op.chatId !== chatId || !op.row || op.status === 'Eliminado') { await env.STATE.delete(`pending:${chatId}`); return; }
-  const field = match[1] as keyof Ticket;
-  const value = ['total', 'subtotal', 'iva', 'propina'].includes(field) ? Number(match[2]) : match[2].trim();
-  if (typeof value === 'number' && (!Number.isFinite(value) || value < 0)) { await sendMessage(env, chatId, 'El importe debe ser un número no negativo.'); return; }
+  const field = pending.field;
+  let value: string | number;
+  try { value = correctionValue(field, text); } catch (error) { await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido'); return; }
   const candidate = { ...op.ticket, [field]: value };
+  if (field === 'fecha') candidate.notas = candidate.notas?.replace(/revisar año[.,; ]*/gi, '').trim() || null;
   try { validateTicket(candidate); } catch (error) { await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido'); return; }
   const oldKey = await semanticKey(op.ticket);
+  const oldDate = op.ticket.fecha;
   op.ticket = candidate;
   op.status = 'Revisar';
+  if (field === 'fecha' && candidate.fecha !== oldDate) await relocateImage(env, op);
   await updateTicket(env, op);
   await saveOperation(env, op);
   const newKey = await semanticKey(op.ticket);
   if (oldKey && oldKey !== newKey) await env.STATE.delete(oldKey);
   if (newKey) await env.STATE.put(newKey, op.id);
   await env.STATE.delete(`pending:${chatId}`);
-  await sendMessage(env, chatId, `Corrección guardada: ${field} = ${value}. Operación ${op.id}.`, operationButtons(op.id));
+  const imageLink = `https://drive.google.com/file/d/${op.fileId}/view`;
+  await sendMessage(env, chatId, `✅ Corrección guardada.\n${ticketSummary(op.ticket, op.status, imageLink)}`, operationButtons(op.id));
 }
 
 async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['callback_query']>): Promise<void> {
   const chatId = update.message?.chat.id;
   if (!chatId || !allowedChat(env, chatId) || update.from.id !== chatId) { await answerCallback(env, update.id, 'No autorizado'); return; }
-  const [action, id] = (update.data ?? '').split(':');
+  const [action, id, field] = (update.data ?? '').split(':');
   const op = id ? await env.STATE.get<Operation>(`op:${id}`, 'json') : null;
   if (!op || op.chatId !== chatId || !op.row || op.status === 'Eliminado') { await answerCallback(env, update.id, 'Registro no disponible'); return; }
-  if (action === 'ok') { await answerCallback(env, update.id, 'Confirmado'); return; }
+  if (action === 'ok') {
+    await env.STATE.delete(`pending:${chatId}`);
+    op.status = 'OK';
+    await updateTicket(env, op);
+    await saveOperation(env, op);
+    await answerCallback(env, update.id, 'Ticket confirmado');
+    return;
+  }
   if (action === 'edit') {
-    await env.STATE.put(`pending:${chatId}`, id, { expirationTtl: 600 });
-    await answerCallback(env, update.id, 'Envía la corrección');
-    await sendMessage(env, chatId, 'Escribe campo=valor. Ejemplo: total=458.50. Campos: comercio, fecha, total, subtotal, iva, propina, categoria, metodo_pago.');
+    await env.STATE.delete(`pending:${chatId}`);
+    await answerCallback(env, update.id, 'Elige el dato');
+    await sendMessage(env, chatId, '¿Qué dato quieres corregir?', editButtons(op.id));
+    return;
+  }
+  if (action === 'cancel') {
+    await env.STATE.delete(`pending:${chatId}`);
+    await answerCallback(env, update.id, 'Corrección cancelada');
+    await sendMessage(env, chatId, 'Corrección cancelada.');
+    return;
+  }
+  if (action === 'field' && editFields.has(field as keyof Ticket)) {
+    await env.STATE.put(`pending:${chatId}`, JSON.stringify({ id, field }), { expirationTtl: 600 });
+    await answerCallback(env, update.id, 'Escribe el nuevo valor');
+    const example = field === 'fecha' ? ' Por ejemplo: 21/10/2026.' : field === 'categoria' ? ' Opciones: Alimentos, Transporte, Hospedaje, Insumos, Servicios u Otros.' : '';
+    await sendMessage(env, chatId, `Escribe el nuevo valor de ${editLabels[field]}.${example} Para salir, escribe /cancelar.`);
     return;
   }
   if (action === 'delete') {
+    await env.STATE.delete(`pending:${chatId}`);
     await moveToTrash(env, op.fileId);
     op.status = 'Eliminado';
     await updateTicket(env, op);

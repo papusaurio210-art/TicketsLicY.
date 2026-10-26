@@ -1,4 +1,5 @@
 import { requestJson } from './http';
+import { suspiciousYear } from './ticket';
 import type { Env, Ticket } from './types';
 
 interface TelegramResult<T> { ok: boolean; result: T }
@@ -35,7 +36,9 @@ export async function downloadPhoto(env: Env, fileId: string): Promise<{ bytes: 
 }
 
 export function ticketSummary(ticket: Ticket, status: string, link: string): string {
-  return `${status}: ${ticket.comercio}\nFecha: ${ticket.fecha}\nTotal: ${ticket.total?.toFixed(2)} ${ticket.moneda}\nIVA: ${ticket.iva?.toFixed(2) ?? 'N/D'}\nCategoría: ${ticket.categoria}\nImagen: ${link}`;
+  const [year, month, day] = ticket.fecha.split('-');
+  const warning = suspiciousYear(ticket.fecha) || /revisar año/i.test(ticket.notas ?? '') ? '\n⚠️ Revisa el año de la fecha antes de confirmar.' : '';
+  return `${status}: ${ticket.comercio}\nFecha: ${day}/${month}/${year}${warning}\nTotal: ${ticket.total?.toFixed(2)} ${ticket.moneda}\nIVA: ${ticket.iva?.toFixed(2) ?? 'N/D'}\nCategoría: ${ticket.categoria}\nImagen: ${link}`;
 }
 
 export function operationButtons(id: string): object {
@@ -44,4 +47,17 @@ export function operationButtons(id: string): object {
     { text: '✏️ Corregir', callback_data: `edit:${id}` },
     { text: '🗑 Eliminar', callback_data: `delete:${id}` },
   ]] };
+}
+
+export function editButtons(id: string): object {
+  const fields = [
+    [['📅 Fecha', 'fecha'], ['🏪 Comercio', 'comercio']],
+    [['💰 Total', 'total'], ['🧾 Subtotal', 'subtotal']],
+    [['IVA', 'iva'], ['Propina', 'propina']],
+    [['Categoría', 'categoria'], ['Pago', 'metodo_pago']],
+  ];
+  return { inline_keyboard: [
+    ...fields.map(row => row.map(([text, field]) => ({ text, callback_data: `field:${id}:${field}` }))),
+    [{ text: 'Cancelar', callback_data: `cancel:${id}` }],
+  ] };
 }

@@ -48,4 +48,21 @@ describe('Worker', () => {
       expect(fetchMock).toHaveBeenCalledOnce();
     } finally { fetchMock.mockRestore(); }
   });
+
+  it('recibe al usuario con una instrucción breve para enviar la foto', async () => {
+    const e = env();
+    const pending: Promise<unknown>[] = [];
+    const ctx = { waitUntil: (promise: Promise<unknown>) => pending.push(promise) } as unknown as ExecutionContext;
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ ok: true, result: { message_id: 1 } }));
+    try {
+      await worker.fetch(new Request('http://localhost/telegram', {
+        method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': 'secret' },
+        body: JSON.stringify({ update_id: 3, message: { message_id: 3, chat: { id: 123 }, from: { id: 123 }, text: '/start' } }),
+      }), e, ctx);
+      await Promise.all(pending);
+      const message = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).text;
+      expect(message).toContain('Envíame una foto clara');
+      expect(message).not.toContain('/buscar');
+    } finally { fetchMock.mockRestore(); }
+  });
 });

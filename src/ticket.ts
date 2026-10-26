@@ -2,6 +2,14 @@ import type { Ticket } from './types';
 
 export const categories = ['Alimentos', 'Transporte', 'Hospedaje', 'Insumos', 'Servicios', 'Otros'] as const;
 
+export function suspiciousYear(dateText: string, now = new Date()): boolean {
+  const date = new Date(`${dateText}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || now.getUTCFullYear() - date.getUTCFullYear() !== 1) return false;
+  const sameDayThisYear = new Date(date);
+  sameDayThisYear.setUTCFullYear(now.getUTCFullYear());
+  return Math.abs(now.getTime() - sameDayThisYear.getTime()) <= 31 * 86_400_000;
+}
+
 export const ticketSchema = {
   type: 'object',
   additionalProperties: false,
@@ -34,7 +42,7 @@ export function validateTicket(value: unknown, now = new Date()): { ticket: Tick
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== ticket.fecha) throw new Error('Fecha inválida');
   const earliest = new Date(now);
   earliest.setUTCMonth(earliest.getUTCMonth() - 18);
-  const review = date > now || date < earliest ||
+  const review = date > now || date < earliest || suspiciousYear(ticket.fecha, now) || /revisar año/i.test(ticket.notas ?? '') ||
     (ticket.subtotal !== null && ticket.iva !== null && Math.abs(ticket.subtotal + ticket.iva + (ticket.propina ?? 0) - ticket.total) > 1);
   return { ticket, review };
 }
