@@ -65,3 +65,23 @@ export function editButtons(id: string): object {
 export function cancelEditButton(id: string): object {
   return { inline_keyboard: [[{ text: 'Cancelar', callback_data: `cancel:${id}` }]] };
 }
+
+export const menuLabels = {
+  newTicket: '📸 Nuevo ticket',
+  recent: '🧾 Mis tickets',
+  month: '📊 Este mes',
+  search: '🔎 Buscar',
+  help: 'ℹ️ Ayuda',
+} as const;
+
+export function mainMenu(): object {
+  return { keyboard: [
+    [{ text: menuLabels.newTicket }, { text: menuLabels.recent }],
+    [{ text: menuLabels.month }, { text: menuLabels.search }],
+    [{ text: menuLabels.help }],
+  ], resize_keyboard: true, is_persistent: true };
+}
+
+export function cancelSearchButton(): object {
+  return { inline_keyboard: [[{ text: 'Cancelar', callback_data: 'search_cancel' }]] };
+}

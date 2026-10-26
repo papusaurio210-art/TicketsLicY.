@@ -3,7 +3,7 @@ import { appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, u
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
 import { categories, validateTicket } from './ticket';
-import { allowedChat, answerCallback, cancelEditButton, downloadPhoto, editButtons, operationButtons, sendMessage, ticketSummary } from './telegram';
+import { allowedChat, answerCallback, cancelEditButton, cancelSearchButton, downloadPhoto, editButtons, mainMenu, menuLabels, operationButtons, sendMessage, ticketSummary } from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
 
 const day = 86_400;
@@ -80,36 +80,69 @@ async function handlePhoto(env: Env, chatId: number, userId: number, fileId: str
   await sendMessage(env, chatId, ticketSummary(op.ticket, op.status, imageLink), operationButtons(op.id));
 }
 
+async function handleQuery(env: Env, chatId: number, command: 'recent' | 'month' | 'search', argument = ''): Promise<void> {
+  if (command === 'month' && argument && !/^\d{4}-(0[1-9]|1[0-2])$/.test(argument)) { await sendMessage(env, chatId, 'Escribe el mes como AAAA-MM.'); return; }
+  const tickets = visibleTickets(await readTickets(env), chatId, env.QUERY_SCOPE);
+  if (command === 'recent') {
+    await sendMessage(env, chatId, tickets.sort((a, b) => b.row - a.row).slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.');
+  } else if (command === 'search') {
+    const matches = searchTickets(tickets, argument).sort((a, b) => b.row - a.row);
+    await sendMessage(env, chatId, matches.length ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${Math.min(matches.length, 5)} de ${matches.length}.` : 'No encontré tickets que coincidan.');
+  } else {
+    const month = argument || new Date().toISOString().slice(0, 7);
+    const totals = monthTotals(tickets, month);
+    await sendMessage(env, chatId, totals.size ? [...totals].map(([currency, total]) => `${month}: ${total.toFixed(2)} ${currency}`).join('\n') : `No hay tickets para ${month}.`);
+  }
+}
+
+async function promptSearch(env: Env, chatId: number): Promise<void> {
+  await env.STATE.put(`search:${chatId}`, '1', { expirationTtl: 600 });
+  await sendMessage(env, chatId, '¿Qué ticket buscas? Escribe el comercio, folio, categoría o mes (AAAA-MM).', cancelSearchButton());
+}
+
 async function handleText(env: Env, chatId: number, text: string): Promise<void> {
-  if (text.startsWith('/start')) {
-    await sendMessage(env, chatId, '📸 Envíame una foto clara de tu ticket. Al registrarlo, podrás revisar y corregir los datos.');
-    return;
-  }
-  if (text.startsWith('/ayuda')) {
-    await sendMessage(env, chatId, '📸 Envíame una foto de tu ticket. Para consultar solo tus registros, escribe /ultimos, /total_mes o /buscar seguido del comercio. Si algo sale mal, toca Corregir en el ticket.');
-    return;
-  }
-  if (text.startsWith('/cancelar')) {
+  const input = text.trim();
+  if (input.startsWith('/start')) {
     await env.STATE.delete(`pending:${chatId}`);
-    await sendMessage(env, chatId, 'Corrección cancelada.');
+    await env.STATE.delete(`search:${chatId}`);
+    await sendMessage(env, chatId, '📸 Envíame una foto clara de tu ticket o usa los botones para consultar tus registros.', mainMenu());
     return;
   }
-  const command = text.trim().split(/\s+/, 1)[0];
+  if (input === menuLabels.help || input.startsWith('/ayuda')) {
+    await env.STATE.delete(`pending:${chatId}`);
+    await env.STATE.delete(`search:${chatId}`);
+    await sendMessage(env, chatId, 'Usa los botones de abajo para ver tus tickets, consultar el mes o buscar. Para registrar uno nuevo, envía una foto. Si algún dato sale mal, toca Corregir en el ticket.', mainMenu());
+    return;
+  }
+  if (input === menuLabels.newTicket) {
+    await env.STATE.delete(`pending:${chatId}`);
+    await env.STATE.delete(`search:${chatId}`);
+    await sendMessage(env, chatId, '📸 Adjunta una foto clara del ticket.');
+    return;
+  }
+  if (input === menuLabels.recent || input === menuLabels.month || input === menuLabels.search) {
+    await env.STATE.delete(`pending:${chatId}`);
+    await env.STATE.delete(`search:${chatId}`);
+    if (input === menuLabels.search) await promptSearch(env, chatId);
+    else await handleQuery(env, chatId, input === menuLabels.recent ? 'recent' : 'month');
+    return;
+  }
+  if (input.startsWith('/cancelar')) {
+    await env.STATE.delete(`pending:${chatId}`);
+    await env.STATE.delete(`search:${chatId}`);
+    await sendMessage(env, chatId, 'Acción cancelada.');
+    return;
+  }
+  const command = input.split(/\s+/, 1)[0];
   if (command === '/ultimos' || command === '/total_mes' || command === '/buscar') {
-    const argument = text.trim().slice(command.length).trim();
-    if (command === '/buscar' && !argument) { await sendMessage(env, chatId, 'Uso: /buscar comercio, folio, categoría o AAAA-MM'); return; }
-    if (command === '/total_mes' && argument && !/^\d{4}-(0[1-9]|1[0-2])$/.test(argument)) { await sendMessage(env, chatId, 'Uso: /total_mes AAAA-MM'); return; }
-    const tickets = visibleTickets(await readTickets(env), chatId, env.QUERY_SCOPE);
-    if (command === '/ultimos') {
-      await sendMessage(env, chatId, tickets.sort((a, b) => b.row - a.row).slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.');
-    } else if (command === '/buscar') {
-      const matches = searchTickets(tickets, argument).sort((a, b) => b.row - a.row);
-      await sendMessage(env, chatId, matches.length ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${Math.min(matches.length, 5)} de ${matches.length}.` : 'No encontré tickets que coincidan.');
-    } else {
-      const month = argument || new Date().toISOString().slice(0, 7);
-      const totals = monthTotals(tickets, month);
-      await sendMessage(env, chatId, totals.size ? [...totals].map(([currency, total]) => `${month}: ${total.toFixed(2)} ${currency}`).join('\n') : `No hay tickets para ${month}.`);
-    }
+    const argument = input.slice(command.length).trim();
+    if (command === '/buscar' && !argument) await promptSearch(env, chatId);
+    else await handleQuery(env, chatId, command === '/ultimos' ? 'recent' : command === '/buscar' ? 'search' : 'month', argument);
+    return;
+  }
+  if (await env.STATE.get(`search:${chatId}`)) {
+    await env.STATE.delete(`search:${chatId}`);
+    await handleQuery(env, chatId, 'search', input);
     return;
   }
   const pending = await env.STATE.get<PendingEdit>(`pending:${chatId}`, 'json');
@@ -140,6 +173,12 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
 async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['callback_query']>): Promise<void> {
   const chatId = update.message?.chat.id;
   if (!chatId || !allowedChat(env, chatId) || update.from.id !== chatId) { await answerCallback(env, update.id, 'No autorizado'); return; }
+  if (update.data === 'search_cancel') {
+    await env.STATE.delete(`search:${chatId}`);
+    await answerCallback(env, update.id, 'Búsqueda cancelada');
+    await sendMessage(env, chatId, 'Búsqueda cancelada.');
+    return;
+  }
   const [action, id, field] = (update.data ?? '').split(':');
   const op = id ? await env.STATE.get<Operation>(`op:${id}`, 'json') : null;
   if (!op || op.chatId !== chatId || !op.row || op.status === 'Eliminado') { await answerCallback(env, update.id, 'Registro no disponible'); return; }
@@ -198,6 +237,8 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
     if (update.callback_query) { await handleCallback(env, update.callback_query); return; }
     if (!update.message || await env.STATE.get(`update:${update.update_id}`)) return;
     if (update.message.photo?.length) {
+      await env.STATE.delete(`pending:${chatId}`);
+      await env.STATE.delete(`search:${chatId}`);
       const photo = update.message.photo[update.message.photo.length - 1];
       await sendMessage(env, chatId, 'Procesando tu ticket… ⏳');
       await handlePhoto(env, chatId, update.message.from?.id ?? chatId, photo.file_id, update.update_id);

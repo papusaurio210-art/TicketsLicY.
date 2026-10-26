@@ -178,4 +178,28 @@ describe('flujo de foto', () => {
       expect(f.messages.at(-1)).toBe('No encontré tickets que coincidan.');
     } finally { f.fetchMock.mockRestore(); }
   });
+
+  it('maneja las consultas con un menú fijo y permite cancelar la búsqueda', async () => {
+    const f = fixture();
+    try {
+      await f.photo(60);
+      await f.send({ update_id: 61, message: { message_id: 61, chat: { id: 123 }, from: { id: 123 }, text: '/start' } });
+      expect(JSON.stringify(f.markups.at(-1))).toContain('🧾 Mis tickets');
+      expect(JSON.stringify(f.markups.at(-1))).toContain('is_persistent');
+      await f.send({ update_id: 62, message: { message_id: 62, chat: { id: 123 }, from: { id: 123 }, text: '🧾 Mis tickets' } });
+      expect(f.messages.at(-1)).toContain('Mercado');
+      await f.send({ update_id: 63, message: { message_id: 63, chat: { id: 123 }, from: { id: 123 }, text: '📊 Este mes' } });
+      expect(f.messages.at(-1)).toContain('116.00 MXN');
+      await f.send({ update_id: 64, message: { message_id: 64, chat: { id: 123 }, from: { id: 123 }, text: '🔎 Buscar' } });
+      expect(f.messages.at(-1)).toContain('¿Qué ticket buscas?');
+      expect(f.state.has('search:123')).toBe(true);
+      await f.send({ update_id: 65, message: { message_id: 65, chat: { id: 123 }, from: { id: 123 }, text: 'mercado' } });
+      expect(f.messages.at(-1)).toContain('Mercado');
+      expect(f.state.has('search:123')).toBe(false);
+      await f.send({ update_id: 66, message: { message_id: 66, chat: { id: 123 }, from: { id: 123 }, text: '🔎 Buscar' } });
+      await f.send({ update_id: 67, callback_query: { id: 'cancel-search', from: { id: 123 }, data: 'search_cancel', message: { chat: { id: 123 }, message_id: 2 } } });
+      expect(f.state.has('search:123')).toBe(false);
+      expect(f.messages.at(-1)).toBe('Búsqueda cancelada.');
+    } finally { f.fetchMock.mockRestore(); }
+  });
 });
