@@ -61,3 +61,7 @@ export function editButtons(id: string): object {
     [{ text: 'Cancelar', callback_data: `cancel:${id}` }],
   ] };
 }
+
+export function cancelEditButton(id: string): object {
+  return { inline_keyboard: [[{ text: 'Cancelar', callback_data: `cancel:${id}` }]] };
+}

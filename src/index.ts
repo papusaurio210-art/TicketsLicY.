@@ -3,7 +3,7 @@ import { appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, u
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
 import { categories, validateTicket } from './ticket';
-import { allowedChat, answerCallback, downloadPhoto, editButtons, operationButtons, sendMessage, ticketSummary } from './telegram';
+import { allowedChat, answerCallback, cancelEditButton, downloadPhoto, editButtons, operationButtons, sendMessage, ticketSummary } from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
 
 const day = 86_400;
@@ -158,7 +158,8 @@ async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['call
     return;
   }
   if (action === 'cancel') {
-    await env.STATE.delete(`pending:${chatId}`);
+    const pending = await env.STATE.get<PendingEdit>(`pending:${chatId}`, 'json');
+    if (pending?.id === id) await env.STATE.delete(`pending:${chatId}`);
     await answerCallback(env, update.id, 'Corrección cancelada');
     await sendMessage(env, chatId, 'Corrección cancelada.');
     return;
@@ -167,7 +168,7 @@ async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['call
     await env.STATE.put(`pending:${chatId}`, JSON.stringify({ id, field }), { expirationTtl: 600 });
     await answerCallback(env, update.id, 'Escribe el nuevo valor');
     const example = field === 'fecha' ? ' Por ejemplo: 21/10/2026.' : field === 'categoria' ? ' Opciones: Alimentos, Transporte, Hospedaje, Insumos, Servicios u Otros.' : '';
-    await sendMessage(env, chatId, `Escribe el nuevo valor de ${editLabels[field]}.${example} Para salir, escribe /cancelar.`);
+    await sendMessage(env, chatId, `Escribe el nuevo valor de ${editLabels[field]}.${example}`, cancelEditButton(op.id));
     return;
   }
   if (action === 'delete') {

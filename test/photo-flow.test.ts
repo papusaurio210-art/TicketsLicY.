@@ -150,6 +150,24 @@ describe('flujo de foto', () => {
     } finally { f.fetchMock.mockRestore(); vi.useRealTimers(); }
   });
 
+  it('cancela con el botón junto al mensaje que pide el valor', async () => {
+    const f = fixture();
+    try {
+      await f.photo(50);
+      const id = [...f.state.keys()].find(key => key.startsWith('op:'))!.slice(3);
+      await f.send({ update_id: 51, callback_query: { id: 'edit', from: { id: 123 }, data: `edit:${id}`, message: { chat: { id: 123 }, message_id: 1 } } });
+      await f.send({ update_id: 52, callback_query: { id: 'field', from: { id: 123 }, data: `field:${id}:total`, message: { chat: { id: 123 }, message_id: 2 } } });
+      expect(f.messages.at(-1)).not.toContain('/cancelar');
+      expect(f.markups.at(-1)).toEqual({ inline_keyboard: [[{ text: 'Cancelar', callback_data: `cancel:${id}` }]] });
+      expect(f.state.has('pending:123')).toBe(true);
+      await f.send({ update_id: 53, callback_query: { id: 'cancel', from: { id: 123 }, data: `cancel:${id}`, message: { chat: { id: 123 }, message_id: 3 } } });
+      expect(f.state.has('pending:123')).toBe(false);
+      expect(f.messages.at(-1)).toBe('Corrección cancelada.');
+      await f.send({ update_id: 54, message: { message_id: 54, chat: { id: 123 }, from: { id: 123 }, text: '999' } });
+      expect(JSON.parse(f.state.get(`op:${id}`)!).ticket.total).toBe(116);
+    } finally { f.fetchMock.mockRestore(); }
+  });
+
   it('busca en Sheets y no muestra a otro usuario los tickets ajenos', async () => {
     const f = fixture();
     try {

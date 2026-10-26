@@ -14,7 +14,7 @@ Cada chat autorizado ve solo los tickets que envió. Las consultas leen Google S
 - `/buscar mercado`: busca en comercio, folio o categoría y muestra hasta cinco resultados.
 - `/buscar 2026-09`: muestra tickets de ese mes.
 
-Las búsquedas son comandos concretos; el bot aún no interpreta preguntas en lenguaje natural. El mensaje inicial pide solo una foto. Después de registrar el ticket, el botón **Corregir** muestra los datos editables: se elige uno y se envía el valor nuevo sin escribir `campo=valor`. La fecha acepta `DD/MM/AAAA` o `AAAA-MM-DD`; al cambiarla, la imagen se mueve a la carpeta correspondiente en Drive. Una fecha del año anterior cercana al día actual se señala para revisar el año, sin modificarla automáticamente.
+Las búsquedas son comandos concretos; el bot aún no interpreta preguntas en lenguaje natural. El mensaje inicial pide solo una foto. Después de registrar el ticket, el botón **Corregir** muestra los datos editables: se elige uno y se envía el valor nuevo sin escribir `campo=valor`. El mensaje que pide el valor incluye un botón **Cancelar**. La fecha acepta `DD/MM/AAAA` o `AAAA-MM-DD`; al cambiarla, la imagen se mueve a la carpeta correspondiente en Drive. Una fecha del año anterior cercana al día actual se señala para revisar el año, sin modificarla automáticamente.
 
 ## Desarrollo local
 
@@ -39,4 +39,4 @@ La integración real con Telegram, OpenAI y Google requiere cuentas y credencial
 
 ## Estado de validación
 
-La comprobación de tipos, las pruebas locales y `wrangler deploy --dry-run` validan el código y el paquete del Worker. El Worker está desplegado en `https://ticketslicy-bot.willicer1313.workers.dev` y Telegram tiene registrado su webhook; Google OAuth, Sheets y Drive respondieron correctamente con la cuenta configurada. Falta probar el flujo completo con una foto real y confirmar el primer build automático desde GitHub. KV limita el gasto por chat y día, pero sus contadores y marcas de duplicado no son transacciones atómicas; antes de aumentar el volumen conviene pasar esas operaciones a Durable Objects o D1.
+La comprobación de tipos, las pruebas locales y `wrangler deploy --dry-run` validan el código y el paquete del Worker. El Worker está desplegado en `https://ticketslicy-bot.willicer1313.workers.dev` y Telegram tiene registrado su webhook; Google OAuth, Sheets y Drive respondieron correctamente con la cuenta configurada. El primer build automático desde GitHub se completó y el usuario probó el registro de una foto y la corrección de su fecha. Queda probar las consultas, la eliminación y más tickets reales. KV limita el gasto por chat y día, pero sus contadores y marcas de duplicado no son transacciones atómicas; antes de aumentar el volumen conviene pasar esas operaciones a Durable Objects o D1.
