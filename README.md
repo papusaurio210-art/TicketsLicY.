@@ -31,7 +31,7 @@ Habilita Drive API y Sheets API en Google Cloud. Crea un cliente OAuth de aplica
 ## Despliegue
 
 1. El namespace KV `ticketslicy-state` ya está creado y vinculado como `STATE` en `wrangler.toml`.
-2. Configura los diez nombres indicados arriba con `wrangler secret put` o en el panel de Cloudflare. `OPENAI_MODEL` es configurable; el valor inicial es `gpt-4.1-mini` y debe verificarse con tickets reales antes de producción.
+2. Configura los diez nombres indicados arriba con `wrangler secret put` o en el panel de Cloudflare. `OPENAI_MODEL` es configurable; el valor actual es `gpt-5-nano`. Se eligió por el precio mostrado en la tabla de OpenAI el 26 de octubre de 2026 ($0.05 por millón de tokens de entrada y $0.40 por millón de salida). Hay que medir su precisión con tickets reales antes de adoptarlo de forma definitiva.
 3. Cloudflare Workers Builds está conectado a este repositorio y a la rama `main`; usa `npm ci` como comando de build y `npx wrangler deploy` como comando de deploy. Cada cambio requiere un commit y un `git push` a `main`; confirma que el build termine correctamente. Cloudflare usa un token propio de Workers Builds que debe permanecer activo para los despliegues automáticos.
 4. Tras desplegar y verificar las variables, configura `WORKER_URL` con la URL HTTPS pública del Worker y ejecuta `npm run webhook:register` con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_SECRET` en el entorno. El script registra `/telegram` y el secreto de webhook en Telegram.
 
