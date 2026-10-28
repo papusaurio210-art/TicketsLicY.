@@ -4,7 +4,11 @@ Worker de Cloudflare que recibe fotos por Telegram, extrae datos con OpenAI y re
 
 Para usar el bot sin detalles técnicos, consulta la [guía rápida de uso](docs/Guia_rapida_TicketsLicY.docx).
 
-El bot acepta únicamente chats privados cuyos IDs estén en `ALLOWED_CHAT_IDS`. Los grupos se ignoran.
+El bot acepta únicamente chats privados autorizados. Inicialmente usa `ALLOWED_CHAT_IDS`; al instalar el panel, los accesos se importan a D1 y se administran desde allí. Los grupos se ignoran.
+
+## Panel de administración
+
+En `/admin` se gestionan cuentas con usuario y contraseña, solicitudes y accesos a Telegram, tickets y actividad. Los administradores gestionan todos los registros; cada usuario ve solo los suyos. Consulta la [preparación y uso del panel](docs/panel-administracion.md). La base D1 y el código inicial de instalación deben configurarse antes del primer uso.
 
 ## Consultas del bot
 

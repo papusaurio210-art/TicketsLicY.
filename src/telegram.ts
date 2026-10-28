@@ -13,7 +13,7 @@ async function callTelegram<T>(env: Env, method: string, payload: object): Promi
 }
 
 export function allowedChat(env: Env, chatId: number): boolean {
-  return env.ALLOWED_CHAT_IDS.split(',').map(s => s.trim()).filter(Boolean).includes(String(chatId));
+  return (env.ALLOWED_CHAT_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean).includes(String(chatId));
 }
 
 export function sendMessage(env: Env, chatId: number, text: string, replyMarkup?: object): Promise<{ message_id: number }> {

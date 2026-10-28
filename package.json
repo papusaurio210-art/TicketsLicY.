@@ -10,10 +10,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bootstrap:google": "NODE_USE_ENV_PROXY=1 node scripts/setup-google.mjs",
-    "webhook:register": "NODE_USE_ENV_PROXY=1 node scripts/register-webhook.mjs"
+    "webhook:register": "NODE_USE_ENV_PROXY=1 node scripts/register-webhook.mjs",
+    "bootstrap:admin": "NODE_USE_ENV_PROXY=1 node scripts/setup-admin.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261019.1",
+    "@types/node": "^24.19.2",
+    "miniflare": "^5.20261019.1-beta",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0",
     "wrangler": "^4.0.0"

@@ -1,4 +1,11 @@
 import type { Ticket } from './types';
+import { sha256 } from './http';
+
+export async function semanticKey(ticket: Ticket): Promise<string | null> {
+  if (!ticket.folio || ticket.total === null) return null;
+  const identity = `${ticket.comercio.trim().toLocaleLowerCase()}|${ticket.fecha}|${ticket.total.toFixed(2)}|${ticket.folio.trim().toLocaleLowerCase()}`;
+  return `fingerprint:${await sha256(new TextEncoder().encode(identity).buffer)}`;
+}
 
 export const categories = ['Alimentos', 'Transporte', 'Hospedaje', 'Insumos', 'Servicios', 'Otros'] as const;
 

@@ -1,4 +1,6 @@
 export interface Env {
+  ADMIN_DB?: D1Database;
+  ADMIN_SETUP_TOKEN?: string;
   STATE: KVNamespace;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
@@ -48,13 +50,13 @@ export interface TelegramUpdate {
   message?: {
     message_id: number;
     chat: { id: number };
-    from?: { id: number };
+    from?: { id: number; username?: string; first_name?: string };
     photo?: Array<{ file_id: string; file_size?: number }>;
     text?: string;
   };
   callback_query?: {
     id: string;
-    from: { id: number };
+    from: { id: number; username?: string; first_name?: string };
     data?: string;
     message?: { chat: { id: number }; message_id: number };
   };

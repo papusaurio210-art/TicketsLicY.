@@ -2,8 +2,10 @@ import { sha256 } from './http';
 import { appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, updateTicket, uploadImage } from './google';
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
-import { categories, validateTicket } from './ticket';
-import { allowedChat, answerCallback, cancelEditButton, cancelSearchButton, downloadPhoto, editButtons, mainMenu, menuLabels, operationButtons, sendMessage, ticketSummary } from './telegram';
+import { categories, semanticKey, validateTicket } from './ticket';
+import { handleAdmin } from './admin';
+import { hasBotAccess, requestAccess } from './admin-store';
+import { answerCallback, cancelEditButton, cancelSearchButton, downloadPhoto, editButtons, mainMenu, menuLabels, operationButtons, sendMessage, ticketSummary } from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
 
 const day = 86_400;
@@ -27,14 +29,8 @@ function correctionValue(field: keyof Ticket, input: string): string | number {
   return value;
 }
 
-async function semanticKey(ticket: Ticket): Promise<string | null> {
-  if (!ticket.folio || ticket.total === null) return null;
-  const identity = `${ticket.comercio.trim().toLocaleLowerCase()}|${ticket.fecha}|${ticket.total.toFixed(2)}|${ticket.folio.trim().toLocaleLowerCase()}`;
-  return `fingerprint:${await sha256(new TextEncoder().encode(identity).buffer)}`;
-}
-
 function required(env: Env): void {
-  const names = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'ALLOWED_CHAT_IDS', 'OPENAI_API_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'GOOGLE_FOLDER_ID', 'GOOGLE_SHEET_ID', 'GOOGLE_TRASH_FOLDER_ID'] as const;
+  const names = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'OPENAI_API_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'GOOGLE_FOLDER_ID', 'GOOGLE_SHEET_ID', 'GOOGLE_TRASH_FOLDER_ID'] as const;
   const missing = names.filter(name => !env[name]);
   if (missing.length) throw new Error(`Falta configuración: ${missing.join(', ')}`);
 }
@@ -82,7 +78,7 @@ async function handlePhoto(env: Env, chatId: number, userId: number, fileId: str
 
 async function handleQuery(env: Env, chatId: number, command: 'recent' | 'month' | 'search', argument = ''): Promise<void> {
   if (command === 'month' && argument && !/^\d{4}-(0[1-9]|1[0-2])$/.test(argument)) { await sendMessage(env, chatId, 'Escribe el mes como AAAA-MM.'); return; }
-  const tickets = visibleTickets(await readTickets(env), chatId, env.QUERY_SCOPE);
+  const tickets = visibleTickets(await readTickets(env), chatId, undefined);
   if (command === 'recent') {
     await sendMessage(env, chatId, tickets.sort((a, b) => b.row - a.row).slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.');
   } else if (command === 'search') {
@@ -172,7 +168,8 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
 
 async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['callback_query']>): Promise<void> {
   const chatId = update.message?.chat.id;
-  if (!chatId || !allowedChat(env, chatId) || update.from.id !== chatId) { await answerCallback(env, update.id, 'No autorizado'); return; }
+  if (!chatId || !await hasBotAccess(env, chatId) || update.from.id !== chatId) { await answerCallback(env, update.id, 'No autorizado'); return; }
+  await env.STATE.delete(`search:${chatId}`);
   if (update.data === 'search_cancel') {
     await env.STATE.delete(`search:${chatId}`);
     await answerCallback(env, update.id, 'Búsqueda cancelada');
@@ -228,8 +225,13 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
   const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id;
   if (!chatId) return;
   if (update.message && update.message.from?.id !== chatId) return; // Private chats only.
-  if (!allowedChat(env, chatId)) {
-    if (update.message) await sendMessage(env, chatId, 'Este bot es privado.');
+  if (!await hasBotAccess(env, chatId)) {
+    const requester = update.message?.from ?? update.callback_query?.from;
+    if (update.callback_query?.data === 'access_request' && requester?.id === chatId) {
+      const saved = await requestAccess(env, chatId, requester.username ? `@${requester.username}` : requester.first_name ?? String(chatId));
+      await answerCallback(env, update.callback_query.id, 'Solicitud recibida');
+      await sendMessage(env, chatId, saved ? 'Tu solicitud se revisará en el panel de administración.' : 'El administrador todavía está preparando los accesos. Inténtalo más tarde.');
+    } else if (update.message) await sendMessage(env, chatId, 'Necesitas autorización para usar este bot.', { inline_keyboard: [[{text:'Solicitar acceso',callback_data:'access_request'}]] });
     else if (update.callback_query) await answerCallback(env, update.callback_query.id, 'No autorizado');
     return;
   }
@@ -260,6 +262,7 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) return handleAdmin(request, env);
     if (url.pathname === '/health' && request.method === 'GET') return Response.json({ ok: true });
     if (url.pathname !== '/telegram' || request.method !== 'POST') return new Response('Not found', { status: 404 });
     try { required(env); } catch { return new Response('Server not configured', { status: 503 }); }
