@@ -2,6 +2,8 @@
 
 Worker de Cloudflare que recibe fotos por Telegram, extrae datos con OpenAI y registra la imagen y sus datos en Google Drive y Sheets. La especificación original está en el documento DOCX de este repositorio.
 
+Para usar el bot sin detalles técnicos, consulta la [guía rápida de uso](docs/Guia_rapida_TicketsLicY.docx).
+
 El bot acepta únicamente chats privados cuyos IDs estén en `ALLOWED_CHAT_IDS`. Los grupos se ignoran.
 
 ## Consultas del bot
