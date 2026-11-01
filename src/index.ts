@@ -1,19 +1,58 @@
 import { sha256 } from './http';
-import { GoogleIntegrationError, recordGoogleStatus, appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, updateTicket, uploadImage } from './google';
+import {
+  StorageError,
+  dailyCount,
+  findDuplicate,
+  getOperation,
+  readTickets,
+  restoreImage,
+  saveNewTicket,
+  storeImage,
+  updateCompleted,
+  updateTicket,
+} from './storage';
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
-import { categories, semanticKey, validateTicket } from './ticket';
+import { categories, validateTicket } from './ticket';
 import { handleAdmin } from './admin';
 import { publicPage } from './public-pages';
 import { hasBotAccess, requestAccess } from './admin-store';
-import { answerCallback, cancelEditButton, cancelSearchButton, downloadPhoto, editButtons, mainMenu, menuLabels, operationButtons, sendMessage, ticketSummary } from './telegram';
+import {
+  answerCallback,
+  cancelEditButton,
+  cancelSearchButton,
+  downloadPhoto,
+  editButtons,
+  mainMenu,
+  menuLabels,
+  operationButtons,
+  sendMessage,
+  ticketSummary,
+} from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
 
 const day = 86_400;
-const editFields = new Set<keyof Ticket>(['comercio', 'fecha', 'total', 'subtotal', 'iva', 'propina', 'categoria', 'metodo_pago']);
+const editFields = new Set<keyof Ticket>([
+  'comercio',
+  'fecha',
+  'total',
+  'subtotal',
+  'iva',
+  'propina',
+  'categoria',
+  'metodo_pago',
+]);
 type PendingEdit = { id: string; field: keyof Ticket };
-const editLabels: Record<string, string> = { comercio: 'el comercio', fecha: 'la fecha', total: 'el total', subtotal: 'el subtotal', iva: 'el IVA', propina: 'la propina', categoria: 'la categoría', metodo_pago: 'el método de pago' };
-class PartialSaveError extends Error {}
+const editLabels: Record<string, string> = {
+  comercio: 'el comercio',
+  fecha: 'la fecha',
+  total: 'el total',
+  subtotal: 'el subtotal',
+  iva: 'el IVA',
+  propina: 'la propina',
+  categoria: 'la categoría',
+  metodo_pago: 'el método de pago',
+};
 
 function correctionValue(field: keyof Ticket, input: string): string | number {
   const value = input.trim();
@@ -22,79 +61,148 @@ function correctionValue(field: keyof Ticket, input: string): string | number {
     return match ? `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}` : value;
   }
   if (['total', 'subtotal', 'iva', 'propina'].includes(field)) {
-    if (!/^\d+(?:[.,]\d{1,2})?$/.test(value)) throw new Error('Escribe un importe válido, por ejemplo 458.50.');
+    if (!/^\d+(?:[.,]\d{1,2})?$/.test(value))
+      throw new Error('Escribe un importe válido, por ejemplo 458.50.');
     return Number(value.replace(',', '.'));
   }
   if (!value) throw new Error('Escribe un valor para guardar la corrección.');
-  if (field === 'categoria') return categories.find(category => category.toLocaleLowerCase('es') === value.toLocaleLowerCase('es')) ?? value;
+  if (field === 'categoria')
+    return (
+      categories.find(
+        (category) => category.toLocaleLowerCase('es') === value.toLocaleLowerCase('es'),
+      ) ?? value
+    );
   return value;
 }
 
 function required(env: Env): void {
-  const names = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'OPENAI_API_KEY', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN', 'GOOGLE_FOLDER_ID', 'GOOGLE_SHEET_ID', 'GOOGLE_TRASH_FOLDER_ID'] as const;
-  const missing = names.filter(name => !env[name]);
+  const names = [
+    'TELEGRAM_BOT_TOKEN',
+    'TELEGRAM_WEBHOOK_SECRET',
+    'OPENAI_API_KEY',
+    'ADMIN_DB',
+    'TICKET_IMAGES',
+  ] as const;
+  const missing = names.filter((name) => !env[name]);
   if (missing.length) throw new Error(`Falta configuración: ${missing.join(', ')}`);
 }
 
-async function saveOperation(env: Env, op: Operation): Promise<void> {
-  await env.STATE.put(`op:${op.id}`, JSON.stringify(op));
+function panelLink(env: Env): string {
+  return `${env.PUBLIC_APP_URL || 'https://ticketslicy-bot.willicer1313.workers.dev'}/admin`;
 }
-
-async function handlePhoto(env: Env, chatId: number, userId: number, fileId: string, updateId: number): Promise<void> {
-  const countKey = `daily:${chatId}:${new Date().toISOString().slice(0, 10)}`;
-  const count = Number(await env.STATE.get(countKey) ?? 0);
-  if (count >= 30) { await sendMessage(env, chatId, 'Alcanzaste el límite diario de 30 tickets.'); return; }
-  const { bytes, mime } = await downloadPhoto(env, fileId);
-  const hash = await sha256(bytes);
-  const duplicate = await env.STATE.get(`hash:${hash}`);
-  if (duplicate) { await sendMessage(env, chatId, `Este ticket ya fue registrado (operación ${duplicate}).`); return; }
-  let op = await env.STATE.get<Operation>(`stage:${hash}`, 'json');
+async function handlePhoto(
+  env: Env,
+  chatId: number,
+  userId: number,
+  fileId: string,
+  updateId: number,
+): Promise<void> {
+  if (await updateCompleted(env, updateId)) return;
+  if ((await dailyCount(env, chatId)) >= 30)
+    throw new StorageError('DAILY_LIMIT', 'Alcanzaste el límite diario de 30 tickets.', 429);
+  const { bytes, mime } = await downloadPhoto(env, fileId),
+    hash = await sha256(bytes);
+  const duplicate = await findDuplicate(env, chatId, hash);
+  if (duplicate) {
+    if (!duplicate.imageKey) await restoreImage(env, duplicate, bytes);
+    await sendMessage(
+      env,
+      chatId,
+      'Este ticket ya fue registrado. Puedes consultarlo en el panel.',
+    );
+    return;
+  }
+  const stageKey = `cloud-stage:${chatId}:${hash}`;
+  let op = await env.STATE.get<Operation>(stageKey, 'json');
   if (!op) {
     const { ticket, review } = await extractTicket(env, bytes, mime);
-    const key = await semanticKey(ticket);
-    const sameTicket = key ? await env.STATE.get(key) : null;
-    if (sameTicket) { await sendMessage(env, chatId, `Este ticket ya fue registrado (operación ${sameTicket}).`); return; }
-    const id = crypto.randomUUID().replaceAll('-', '').slice(0, 16);
-    op = { id, hash, chatId, userId, fileId: '', row: 0, ticket, status: review ? 'Revisar' : 'OK' };
-    const image = await uploadImage(env, bytes, mime, ticket, hash);
-    op.fileId = image.id;
-    await env.STATE.put(`stage:${hash}`, JSON.stringify(op), { expirationTtl: day * 7 });
+    if (await findDuplicate(env, chatId, hash, ticket)) {
+      await sendMessage(
+        env,
+        chatId,
+        'Este ticket ya fue registrado. Puedes consultarlo en el panel.',
+      );
+      return;
+    }
+    op = {
+      id: crypto.randomUUID().replaceAll('-', '').slice(0, 16),
+      hash,
+      chatId,
+      userId,
+      imageKey: null,
+      mime: null,
+      createdAt: new Date().toISOString(),
+      origin: 'native',
+      ticket,
+      status: review ? 'Revisar' : 'OK',
+    };
+    await env.STATE.put(stageKey, JSON.stringify(op), { expirationTtl: day * 7 });
   }
-  if (op.chatId !== chatId) { await sendMessage(env, chatId, 'Este ticket ya está en proceso en otro chat.'); return; }
-  const imageLink = `https://drive.google.com/file/d/${op.fileId}/view`;
-  try {
-    op.row = await findRowByHash(env, hash) ?? await appendTicket(env, op, imageLink);
-  } catch {
-    throw new PartialSaveError(`La imagen quedó en Drive (${imageLink}), pero no pude confirmar la fila en Sheets. Reenvía la misma foto para recuperar el registro.`);
+  if (!op.imageKey) {
+    await storeImage(env, op, bytes);
+    await env.STATE.put(stageKey, JSON.stringify(op), { expirationTtl: day * 7 });
   }
-  await saveOperation(env, op);
-  await env.STATE.put(`hash:${hash}`, op.id);
-  const key = await semanticKey(op.ticket);
-  if (key) await env.STATE.put(key, op.id);
-  await env.STATE.put(`update:${updateId}`, op.id, { expirationTtl: day });
-  await env.STATE.put(countKey, String(count + 1), { expirationTtl: day * 2 });
-  await env.STATE.delete(`stage:${hash}`);
-  await sendMessage(env, chatId, ticketSummary(op.ticket, op.status, imageLink), operationButtons(op.id));
+  const result = await saveNewTicket(env, op, updateId);
+  await env.STATE.delete(stageKey);
+  await sendMessage(
+    env,
+    chatId,
+    result.created
+      ? ticketSummary(result.op.ticket, result.op.status, panelLink(env))
+      : 'Este ticket ya fue registrado. Puedes consultarlo en el panel.',
+    operationButtons(result.op.id),
+  );
 }
 
-async function handleQuery(env: Env, chatId: number, command: 'recent' | 'month' | 'search', argument = ''): Promise<void> {
-  if (command === 'month' && argument && !/^\d{4}-(0[1-9]|1[0-2])$/.test(argument)) { await sendMessage(env, chatId, 'Escribe el mes como AAAA-MM.'); return; }
-  const tickets = visibleTickets(await readTickets(env), chatId, undefined);
+async function handleQuery(
+  env: Env,
+  chatId: number,
+  command: 'recent' | 'month' | 'search',
+  argument = '',
+): Promise<void> {
+  if (command === 'month' && argument && !/^\d{4}-(0[1-9]|1[0-2])$/.test(argument)) {
+    await sendMessage(env, chatId, 'Escribe el mes como AAAA-MM.');
+    return;
+  }
+  const tickets = visibleTickets(await readTickets(env, chatId), chatId, undefined);
   if (command === 'recent') {
-    await sendMessage(env, chatId, tickets.sort((a, b) => b.row - a.row).slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.');
+    await sendMessage(
+      env,
+      chatId,
+      tickets.slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.',
+    );
   } else if (command === 'search') {
-    const matches = searchTickets(tickets, argument).sort((a, b) => b.row - a.row);
-    await sendMessage(env, chatId, matches.length ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${Math.min(matches.length, 5)} de ${matches.length}.` : 'No encontré tickets que coincidan.');
+    const matches = searchTickets(tickets, argument);
+    await sendMessage(
+      env,
+      chatId,
+      matches.length
+        ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${Math.min(matches.length, 5)} de ${matches.length}.`
+        : 'No encontré tickets que coincidan.',
+    );
   } else {
     const month = argument || new Date().toISOString().slice(0, 7);
     const totals = monthTotals(tickets, month);
-    await sendMessage(env, chatId, totals.size ? [...totals].map(([currency, total]) => `${month}: ${total.toFixed(2)} ${currency}`).join('\n') : `No hay tickets para ${month}.`);
+    await sendMessage(
+      env,
+      chatId,
+      totals.size
+        ? [...totals]
+            .map(([currency, total]) => `${month}: ${total.toFixed(2)} ${currency}`)
+            .join('\n')
+        : `No hay tickets para ${month}.`,
+    );
   }
 }
 
 async function promptSearch(env: Env, chatId: number): Promise<void> {
   await env.STATE.put(`search:${chatId}`, '1', { expirationTtl: 600 });
-  await sendMessage(env, chatId, '¿Qué ticket buscas? Escribe el comercio, folio, categoría o mes (AAAA-MM).', cancelSearchButton());
+  await sendMessage(
+    env,
+    chatId,
+    '¿Qué ticket buscas? Escribe el comercio, folio, categoría o mes (AAAA-MM).',
+    cancelSearchButton(),
+  );
 }
 
 async function handleText(env: Env, chatId: number, text: string): Promise<void> {
@@ -102,13 +210,23 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
   if (input.startsWith('/start')) {
     await env.STATE.delete(`pending:${chatId}`);
     await env.STATE.delete(`search:${chatId}`);
-    await sendMessage(env, chatId, '📸 Envíame una foto clara de tu ticket o usa los botones para consultar tus registros.', mainMenu());
+    await sendMessage(
+      env,
+      chatId,
+      '📸 Envíame una foto clara de tu ticket o usa los botones para consultar tus registros.',
+      mainMenu(),
+    );
     return;
   }
   if (input === menuLabels.help || input.startsWith('/ayuda')) {
     await env.STATE.delete(`pending:${chatId}`);
     await env.STATE.delete(`search:${chatId}`);
-    await sendMessage(env, chatId, 'Usa los botones de abajo para ver tus tickets, consultar el mes o buscar. Para registrar uno nuevo, envía una foto. Si algún dato sale mal, toca Corregir en el ticket.', mainMenu());
+    await sendMessage(
+      env,
+      chatId,
+      'Usa los botones de abajo para ver tus tickets, consultar el mes o buscar. Para registrar uno nuevo, envía una foto. Si algún dato sale mal, toca Corregir en el ticket.',
+      mainMenu(),
+    );
     return;
   }
   if (input === menuLabels.newTicket) {
@@ -134,7 +252,13 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
   if (command === '/ultimos' || command === '/total_mes' || command === '/buscar') {
     const argument = input.slice(command.length).trim();
     if (command === '/buscar' && !argument) await promptSearch(env, chatId);
-    else await handleQuery(env, chatId, command === '/ultimos' ? 'recent' : command === '/buscar' ? 'search' : 'month', argument);
+    else
+      await handleQuery(
+        env,
+        chatId,
+        command === '/ultimos' ? 'recent' : command === '/buscar' ? 'search' : 'month',
+        argument,
+      );
     return;
   }
   if (await env.STATE.get(`search:${chatId}`)) {
@@ -143,33 +267,54 @@ async function handleText(env: Env, chatId: number, text: string): Promise<void>
     return;
   }
   const pending = await env.STATE.get<PendingEdit>(`pending:${chatId}`, 'json');
-  if (!pending || !pending.id || !editFields.has(pending.field)) { await sendMessage(env, chatId, '📸 Envíame una foto de un ticket o escribe /ayuda.'); return; }
-  const op = await env.STATE.get<Operation>(`op:${pending.id}`, 'json');
-  if (!op || op.chatId !== chatId || !op.row || op.status === 'Eliminado') { await env.STATE.delete(`pending:${chatId}`); return; }
+  if (!pending || !pending.id || !editFields.has(pending.field)) {
+    await sendMessage(env, chatId, '📸 Envíame una foto de un ticket o escribe /ayuda.');
+    return;
+  }
+  const op = await getOperation(env, pending.id);
+  if (!op || op.chatId !== chatId || op.status === 'Eliminado') {
+    await env.STATE.delete(`pending:${chatId}`);
+    return;
+  }
   const field = pending.field;
   let value: string | number;
-  try { value = correctionValue(field, text); } catch (error) { await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido'); return; }
+  try {
+    value = correctionValue(field, text);
+  } catch (error) {
+    await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido');
+    return;
+  }
   const candidate = { ...op.ticket, [field]: value };
-  if (field === 'fecha') candidate.notas = candidate.notas?.replace(/revisar año[.,; ]*/gi, '').trim() || null;
-  try { validateTicket(candidate); } catch (error) { await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido'); return; }
-  const oldKey = await semanticKey(op.ticket);
-  const oldDate = op.ticket.fecha;
+  if (field === 'fecha')
+    candidate.notas = candidate.notas?.replace(/revisar año[.,; ]*/gi, '').trim() || null;
+  try {
+    validateTicket(candidate);
+  } catch (error) {
+    await sendMessage(env, chatId, error instanceof Error ? error.message : 'Valor inválido');
+    return;
+  }
   op.ticket = candidate;
   op.status = 'Revisar';
-  if (field === 'fecha' && candidate.fecha !== oldDate) await relocateImage(env, op);
-  await updateTicket(env, op);
-  await saveOperation(env, op);
-  const newKey = await semanticKey(op.ticket);
-  if (oldKey && oldKey !== newKey) await env.STATE.delete(oldKey);
-  if (newKey) await env.STATE.put(newKey, op.id);
+  await updateTicket(env, op, `Telegram ${chatId}`);
   await env.STATE.delete(`pending:${chatId}`);
-  const imageLink = `https://drive.google.com/file/d/${op.fileId}/view`;
-  await sendMessage(env, chatId, `✅ Corrección guardada.\n${ticketSummary(op.ticket, op.status, imageLink)}`, operationButtons(op.id));
+  const imageLink = panelLink(env);
+  await sendMessage(
+    env,
+    chatId,
+    `✅ Corrección guardada.\n${ticketSummary(op.ticket, op.status, imageLink)}`,
+    operationButtons(op.id),
+  );
 }
 
-async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['callback_query']>): Promise<void> {
+async function handleCallback(
+  env: Env,
+  update: NonNullable<TelegramUpdate['callback_query']>,
+): Promise<void> {
   const chatId = update.message?.chat.id;
-  if (!chatId || !await hasBotAccess(env, chatId) || update.from.id !== chatId) { await answerCallback(env, update.id, 'No autorizado'); return; }
+  if (!chatId || !(await hasBotAccess(env, chatId)) || update.from.id !== chatId) {
+    await answerCallback(env, update.id, 'No autorizado');
+    return;
+  }
   await env.STATE.delete(`search:${chatId}`);
   if (update.data === 'search_cancel') {
     await env.STATE.delete(`search:${chatId}`);
@@ -178,13 +323,15 @@ async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['call
     return;
   }
   const [action, id, field] = (update.data ?? '').split(':');
-  const op = id ? await env.STATE.get<Operation>(`op:${id}`, 'json') : null;
-  if (!op || op.chatId !== chatId || !op.row || op.status === 'Eliminado') { await answerCallback(env, update.id, 'Registro no disponible'); return; }
+  const op = id ? await getOperation(env, id) : null;
+  if (!op || op.chatId !== chatId || op.status === 'Eliminado') {
+    await answerCallback(env, update.id, 'Registro no disponible');
+    return;
+  }
   if (action === 'ok') {
     await env.STATE.delete(`pending:${chatId}`);
     op.status = 'OK';
-    await updateTicket(env, op);
-    await saveOperation(env, op);
+    await updateTicket(env, op, `Telegram ${chatId}`, 'ticket_confirm');
     await answerCallback(env, update.id, 'Ticket confirmado');
     return;
   }
@@ -204,19 +351,24 @@ async function handleCallback(env: Env, update: NonNullable<TelegramUpdate['call
   if (action === 'field' && editFields.has(field as keyof Ticket)) {
     await env.STATE.put(`pending:${chatId}`, JSON.stringify({ id, field }), { expirationTtl: 600 });
     await answerCallback(env, update.id, 'Escribe el nuevo valor');
-    const example = field === 'fecha' ? ' Por ejemplo: 21/10/2026.' : field === 'categoria' ? ' Opciones: Alimentos, Transporte, Hospedaje, Insumos, Servicios u Otros.' : '';
-    await sendMessage(env, chatId, `Escribe el nuevo valor de ${editLabels[field]}.${example}`, cancelEditButton(op.id));
+    const example =
+      field === 'fecha'
+        ? ' Por ejemplo: 21/10/2026.'
+        : field === 'categoria'
+          ? ' Opciones: Alimentos, Transporte, Hospedaje, Insumos, Servicios u Otros.'
+          : '';
+    await sendMessage(
+      env,
+      chatId,
+      `Escribe el nuevo valor de ${editLabels[field]}.${example}`,
+      cancelEditButton(op.id),
+    );
     return;
   }
   if (action === 'delete') {
     await env.STATE.delete(`pending:${chatId}`);
-    await moveToTrash(env, op.fileId);
     op.status = 'Eliminado';
-    await updateTicket(env, op);
-    await saveOperation(env, op);
-    await env.STATE.delete(`hash:${op.hash}`);
-    const key = await semanticKey(op.ticket);
-    if (key) await env.STATE.delete(key);
+    await updateTicket(env, op, `Telegram ${chatId}`, 'ticket_delete');
     await answerCallback(env, update.id, 'Registro eliminado');
     await sendMessage(env, chatId, `La operación ${id} se marcó como Eliminado.`);
   }
@@ -226,37 +378,66 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
   const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id;
   if (!chatId) return;
   if (update.message && update.message.from?.id !== chatId) return; // Private chats only.
-  if (!await hasBotAccess(env, chatId)) {
+  if (!(await hasBotAccess(env, chatId))) {
     const requester = update.message?.from ?? update.callback_query?.from;
     if (update.callback_query?.data === 'access_request' && requester?.id === chatId) {
-      const saved = await requestAccess(env, chatId, requester.username ? `@${requester.username}` : requester.first_name ?? String(chatId));
+      const saved = await requestAccess(
+        env,
+        chatId,
+        requester.username ? `@${requester.username}` : (requester.first_name ?? String(chatId)),
+      );
       await answerCallback(env, update.callback_query.id, 'Solicitud recibida');
-      await sendMessage(env, chatId, saved ? 'Tu solicitud se revisará en el panel de administración.' : 'El administrador todavía está preparando los accesos. Inténtalo más tarde.');
-    } else if (update.message) await sendMessage(env, chatId, 'Necesitas autorización para usar este bot.', { inline_keyboard: [[{text:'Solicitar acceso',callback_data:'access_request'}]] });
-    else if (update.callback_query) await answerCallback(env, update.callback_query.id, 'No autorizado');
+      await sendMessage(
+        env,
+        chatId,
+        saved
+          ? 'Tu solicitud se revisará en el panel de administración.'
+          : 'El administrador todavía está preparando los accesos. Inténtalo más tarde.',
+      );
+    } else if (update.message)
+      await sendMessage(env, chatId, 'Necesitas autorización para usar este bot.', {
+        inline_keyboard: [[{ text: 'Solicitar acceso', callback_data: 'access_request' }]],
+      });
+    else if (update.callback_query)
+      await answerCallback(env, update.callback_query.id, 'No autorizado');
     return;
   }
   try {
-    if (update.callback_query) { await handleCallback(env, update.callback_query); return; }
-    if (!update.message || await env.STATE.get(`update:${update.update_id}`)) return;
+    if (update.callback_query) {
+      await handleCallback(env, update.callback_query);
+      return;
+    }
+    if (!update.message || (await env.STATE.get(`update:${update.update_id}`))) return;
     if (update.message.photo?.length) {
       await env.STATE.delete(`pending:${chatId}`);
       await env.STATE.delete(`search:${chatId}`);
       const photo = update.message.photo[update.message.photo.length - 1];
       await sendMessage(env, chatId, 'Procesando tu ticket… ⏳');
-      await handlePhoto(env, chatId, update.message.from?.id ?? chatId, photo.file_id, update.update_id);
+      await handlePhoto(
+        env,
+        chatId,
+        update.message.from?.id ?? chatId,
+        photo.file_id,
+        update.update_id,
+      );
+      await env.STATE.put(`update:${update.update_id}`, 'photo', { expirationTtl: day });
     } else if (update.message.text) {
       await handleText(env, chatId, update.message.text);
       await env.STATE.put(`update:${update.update_id}`, 'text', { expirationTtl: day });
     }
   } catch (error) {
-    if (error instanceof GoogleIntegrationError) await recordGoogleStatus(env, error);
-    const code = error instanceof Error ? error.message.match(/^HTTP \d+/)?.[0] ?? error.name : 'unknown';
+    const code =
+      error instanceof Error ? (error.message.match(/^HTTP \d+/)?.[0] ?? error.name) : 'unknown';
     console.error('Ticket processing failed', { updateId: update.update_id, code });
-    const message = error instanceof PartialSaveError ? error.message
-      : error instanceof GoogleIntegrationError ? 'La conexión con Google necesita ser revisada. Avisa al administrador del bot.'
-      : error instanceof Error && /^(La imagen supera el límite de 5 MB\.|No pude leer el total con suficiente confianza\.|Fecha inválida$)/.test(error.message) ? error.message
-      : 'No pude procesar el ticket. Inténtalo de nuevo más tarde.';
+    const message =
+      error instanceof StorageError
+        ? error.message
+        : error instanceof Error &&
+            /^(La imagen supera el límite de 5 MB\.|No pude leer el total con suficiente confianza\.|Fecha inválida$)/.test(
+              error.message,
+            )
+          ? error.message
+          : 'No pude procesar el ticket. Inténtalo de nuevo más tarde.';
     await sendMessage(env, chatId, message);
   }
 }
@@ -266,13 +447,24 @@ export default {
     const url = new URL(request.url);
     const publicResponse = publicPage(request, env);
     if (publicResponse) return publicResponse;
-    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) return handleAdmin(request, env);
+    if (url.pathname === '/admin' || url.pathname.startsWith('/admin/'))
+      return handleAdmin(request, env);
     if (url.pathname === '/health' && request.method === 'GET') return Response.json({ ok: true });
-    if (url.pathname !== '/telegram' || request.method !== 'POST') return new Response('Not found', { status: 404 });
-    try { required(env); } catch { return new Response('Server not configured', { status: 503 }); }
-    if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.TELEGRAM_WEBHOOK_SECRET) return new Response('Unauthorized', { status: 401 });
+    if (url.pathname !== '/telegram' || request.method !== 'POST')
+      return new Response('Not found', { status: 404 });
+    try {
+      required(env);
+    } catch {
+      return new Response('Server not configured', { status: 503 });
+    }
+    if (request.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.TELEGRAM_WEBHOOK_SECRET)
+      return new Response('Unauthorized', { status: 401 });
     let update: TelegramUpdate;
-    try { update = await request.json() as TelegramUpdate; } catch { return new Response('Invalid JSON', { status: 400 }); }
+    try {
+      update = (await request.json()) as TelegramUpdate;
+    } catch {
+      return new Response('Invalid JSON', { status: 400 });
+    }
     if (!Number.isInteger(update.update_id)) return new Response('Invalid update', { status: 400 });
     ctx.waitUntil(processUpdate(env, update));
     return new Response('OK');

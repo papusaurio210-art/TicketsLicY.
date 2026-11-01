@@ -5,45 +5,773 @@ export const adminHtml = `<!doctype html><html lang="es"><head><meta charset="ut
 export const adminCss = `:root{font-family:system-ui,sans-serif;color:#172b35;background:#f2f6f7;--accent:#087f78}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:9px;padding:10px 15px;background:var(--accent);color:white;font-weight:600}button:hover{filter:brightness(.94)}button:disabled{opacity:.5;cursor:wait}button.secondary{background:#e5eff0;color:#183c43}button.danger{background:#a82f3b}input,select{border:1px solid #c1d1d6;border-radius:8px;padding:10px;width:100%;background:white}label{display:block;margin:14px 0 5px;font-size:.9rem;font-weight:600}h1{font-size:1.8rem;margin:0 0 8px}h2{font-size:1.15rem}p{line-height:1.6}small,.muted{color:#526d76}.shell{display:grid;grid-template-columns:235px 1fr;min-height:100vh}aside{background:#102d36;color:#e3f4f3;padding:28px 20px}aside strong{display:block;font-size:1.35rem;margin-bottom:8px}aside small{color:#adcdce}nav{display:grid;gap:8px;margin-top:32px}nav button{text-align:left;background:transparent;color:#cce3e5}nav button.selected{background:#22505a;color:white}main{padding:38px;min-width:0;max-width:1450px;width:100%}.top{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-bottom:28px}.card{background:white;border:1px solid #dce7e9;border-radius:16px;padding:24px;margin:18px 0;box-shadow:0 3px 12px #12343d05}.auth{max-width:470px;margin:7vh auto;padding:28px}.auth .card{padding:28px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:18px}.stat{font-size:2rem;font-weight:700}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.scroll{overflow:auto}table{border-collapse:collapse;width:100%;font-size:.9rem}th,td{padding:14px 12px;text-align:left;border-bottom:1px solid #e6edef;vertical-align:middle}th{color:#526d76;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}td button{font-size:.8rem;padding:7px 10px;margin:3px}.badge{background:#e1f4ed;color:#176047;padding:4px 9px;border-radius:20px;white-space:nowrap}.badge.off{background:#f5e8eb;color:#923445}.empty{padding:32px;color:#526d76}.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0 18px}#notice{position:fixed;bottom:20px;right:20px;max-width:420px;background:#102d36;color:white;padding:16px 20px;border-radius:12px;box-shadow:0 8px 25px #0002;display:none;z-index:10}#notice.visible{display:block}.warning{background:#fff7e6;border-color:#e8cc94}.codes{word-break:break-all;background:#edf5f5;padding:16px;border-radius:8px}a{color:var(--accent)}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #e3b14d;outline-offset:3px}@media(max-width:750px){.shell{display:block}aside{padding:18px}nav{display:flex;flex-wrap:wrap;margin-top:16px;gap:4px}nav button{padding:8px}main{padding:20px}.top{align-items:flex-start}.auth{margin:2vh auto;padding:12px}.card{padding:18px}}`;
 
 export const adminJs = String.raw`
-const root=document.getElementById('app'), notice=document.getElementById('notice');
-let me=null,tab='overview',timer;
-const titles={overview:'Resumen',tickets:'Tickets',requests:'Solicitudes',access:'Acceso al bot',users:'Usuarios',audit:'Actividad',account:'Mi cuenta'};
-function node(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e}
-function show(message){notice.textContent=message;notice.classList.add('visible');clearTimeout(timer);timer=setTimeout(()=>notice.classList.remove('visible'),8000)}
-async function api(path,body){const response=await fetch('/admin/api/'+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok){if(response.status===401&&me){me=null;await start()}const error=Error(data.error||'No se pudo completar.');error.code=data.code;throw error}return data}
-function button(text,action,cls=''){const b=node('button',text,cls);b.type='button';b.onclick=async()=>{b.disabled=true;try{await action()}catch(e){show(e.message)}finally{b.disabled=false}};return b}
-function field(form,label,name,type='text',value='',required=true){const wrap=node('div'),id='f-'+name;const lab=node('label',label);lab.htmlFor=id;const input=document.createElement('input');input.id=id;input.name=name;input.type=type;input.required=required;input.value=value;if(type==='password'){input.minLength=12;input.maxLength=128;input.autocomplete=name==='currentPassword'?'current-password':'new-password'}if(name==='username')input.autocomplete='username';wrap.append(lab,input);form.append(wrap);return input}
-function select(form,label,name,choices){const wrap=node('div'),l=node('label',label),s=document.createElement('select');s.name=name;s.id='f-'+name;l.htmlFor=s.id;choices.forEach(([v,t])=>{const o=node('option',t);o.value=v;s.append(o)});wrap.append(l,s);form.append(wrap);return s}
-function submit(form,text,action){const b=node('button',text);b.type='submit';const row=node('div',undefined,'actions');row.append(b);form.append(row);form.onsubmit=async(e)=>{e.preventDefault();b.disabled=true;try{await action(Object.fromEntries(new FormData(form)))}catch(err){show(err.message)}finally{b.disabled=false}}}
-function card(title){const c=node('section',undefined,'card');if(title)c.append(node('h2',title));return c}
-function table(headers,rows){const wrap=node('div',undefined,'scroll'),t=node('table'),head=node('thead'),tr=node('tr');headers.forEach(h=>tr.append(node('th',h)));head.append(tr);t.append(head);const body=node('tbody');rows.forEach(cells=>{const r=node('tr');cells.forEach(c=>{const td=node('td');td.append(c instanceof Node?c:document.createTextNode(String(c??'')));r.append(td)});body.append(r)});t.append(body);wrap.append(t);if(!rows.length)wrap.append(node('p','No hay registros todavía.','empty'));return wrap}
-function badge(active){return node('span',active?'Activo':'Revocado','badge'+(active?'':' off'))}
-async function auth(mode='login',status){root.replaceChildren();const outer=node('main',undefined,'auth');outer.append(node('h1','TicketsLicY'),node('p','Tus tickets y accesos, en un solo lugar.','muted'));const c=card(mode==='setup'?'Crea tu cuenta principal':mode==='recover'?'Recuperar acceso':'Iniciar sesión');const f=document.createElement('form');if(mode==='setup'){c.append(node('p','Elige tu usuario y contraseña. El código de instalación lo entrega quien configura el panel.'));field(f,'Código de instalación','token','password')}if(mode==='recover')field(f,'Código de recuperación','code','text');else field(f,'Usuario','username');field(f,mode==='login'?'Contraseña':'Nueva contraseña (mínimo 12 caracteres)','password','password');if(mode==='login')f.elements.password.autocomplete='current-password';submit(f,mode==='setup'?'Crear cuenta':mode==='recover'?'Cambiar contraseña':'Entrar',async data=>{if(mode==='setup'){const result=await api('setup',data);c.replaceChildren(node('h2','Guarda tus códigos de recuperación'),node('p','Cada código sirve una sola vez para recuperar tu cuenta sin correo. Guárdalos fuera del panel.'));const codes=node('div',undefined,'codes');result.recoveryCodes.forEach(code=>codes.append(node('p',code)));c.append(codes,button('Descargar códigos',()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([['Usuario: '+data.username,'Panel: '+location.origin+'/admin','',...result.recoveryCodes].join('\n')],{type:'text/plain'}));a.download='codigos-recuperacion.txt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}),button('Ir al inicio de sesión',()=>auth('login'),'secondary'));}else if(mode==='recover'){await api('recover',data);show('Contraseña cambiada. Inicia sesión.');await auth('login')}else{me=await api('login',data);tab='overview';await render()}});c.append(f);if(mode==='login')c.append(button('Usar un código de recuperación',()=>auth('recover'),'secondary'));else if(mode==='recover')c.append(button('Volver',()=>auth('login'),'secondary'));outer.append(c);root.append(outer)}
-async function start(){try{const s=await api('status');if(!s.initialized){if(!s.setupAvailable){root.replaceChildren(node('main','El panel está preparado. Falta configurar el código de instalación para crear la cuenta principal.','auth'));return}await auth('setup',s);return}try{me=await api('me')}catch{me=null}if(me)await render();else await auth()}catch(e){root.replaceChildren(node('main',e.message,'auth'))}}
-async function render(){root.replaceChildren();const shell=node('div',undefined,'shell'),side=node('aside');side.append(node('strong','TicketsLicY'),node('small','Panel de administración'));const nav=node('nav');const keys=me.role==='admin'?Object.keys(titles):['overview','tickets','account'];keys.forEach(key=>nav.append(button(titles[key],async()=>{tab=key;await render()},key===tab?'selected':'')));side.append(nav);const main=node('main'),top=node('div',undefined,'top'),heading=node('div');heading.append(node('h1',titles[tab]),node('small',me.username+' · '+(me.role==='admin'?'Administrador':'Usuario')));top.append(heading,button('Cerrar sesión',async()=>{await api('logout',{});me=null;await start()},'secondary'));main.append(top);shell.append(side,main);root.append(shell);try{await content(main)}catch(e){sectionError(main,e)}}
-function sectionError(main,error){
-const google=typeof error.code==='string'&&error.code.startsWith('GOOGLE_'),c=card(google?'Revisar la conexión con Google':'No se pudo cargar esta sección');c.classList.add('warning');
-c.append(node('p',error.message));
-if(google){c.append(node('p','Este error no borra los tickets.'));c.append(node('small','Diagnóstico: '+error.code));if(me?.role==='admin'){c.append(node('p','Puedes seguir administrando usuarios, solicitudes y accesos. Revisa la configuración que indica este mensaje en el Worker de Cloudflare.'));const link=node('a','Ver instrucciones para restablecer Google');link.href='https://github.com/papusaurio210-art/TicketsLicY./blob/main/docs/google-setup.md#restablecer-la-conexión';link.target='_blank';link.rel='noopener noreferrer';c.append(link)}}
-c.append(node('div',undefined,'actions'));c.lastChild.append(button('Reintentar',()=>render(),'secondary'));main.append(c);
+const root = document.getElementById('app'),
+  notice = document.getElementById('notice');
+let me = null,
+  tab = 'overview',
+  timer;
+const titles = {
+  overview: 'Resumen',
+  tickets: 'Tickets',
+  requests: 'Solicitudes',
+  access: 'Acceso al bot',
+  users: 'Usuarios',
+  audit: 'Actividad',
+  account: 'Mi cuenta',
+};
+function node(tag, text, cls) {
+  const e = document.createElement(tag);
+  if (text !== undefined) e.textContent = text;
+  if (cls) e.className = cls;
+  return e;
 }
-async function content(main){
-if(tab==='overview'){
-const results=await Promise.allSettled([api('tickets'),me.role==='admin'?api('requests'):Promise.resolve(null)]);if(!me)return;
-const ticketResult=results[0],requestResult=results[1],grid=node('div',undefined,'grid');
-const stat=(label,value)=>{const c=card();c.append(node('small',label),node('div',String(value),'stat'));grid.append(c)};
-if(ticketResult.status==='fulfilled'){const visible=ticketResult.value.filter(t=>t.estado!=='Eliminado');stat('Tickets guardados',visible.length);const totals={};visible.forEach(t=>totals[t.moneda]=(totals[t.moneda]||0)+t.total);Object.entries(totals).forEach(([m,v])=>stat('Total '+m,v.toFixed(2)))}else stat('Tickets guardados','—');
-if(me.role==='admin')stat('Solicitudes pendientes',requestResult.status==='fulfilled'?requestResult.value.length:'—');
-main.append(grid);if(ticketResult.status==='rejected')sectionError(main,ticketResult.reason);if(requestResult.status==='rejected')sectionError(main,requestResult.reason);
-main.append(node('p','Consulta tus registros en Tickets. Los cambios de acceso se administran desde este panel.','muted'));
+function show(message) {
+  notice.textContent = message;
+  notice.classList.add('visible');
+  clearTimeout(timer);
+  timer = setTimeout(() => notice.classList.remove('visible'), 8000);
 }
-if(tab==='users'){const c=card('Crear usuario'),f=document.createElement('form');field(f,'Usuario','username');field(f,'Contraseña inicial','password','password');select(f,'Permisos','role',[['user','Solo sus tickets'],['admin','Administrador']]);field(f,'ID de Telegram (opcional)','chatId','text','',false);submit(f,'Crear usuario',async data=>{await api('users',data);show('Usuario creado.');await render()});c.append(f);main.append(c);const users=await api('users');main.append(table(['Usuario','Permisos','Telegram','Estado','Acciones'],users.map(u=>{const actions=node('div');if(!u.owner&&u.id!==me.id){actions.append(button(u.active?'Suspender':'Activar',async()=>{if(!confirm('¿Cambiar el acceso de '+u.username+'?'))return;await api('users/'+u.id,{active:!u.active});await render()},'secondary'));actions.append(button('Nueva contraseña',()=>{const reset=card('Cambiar contraseña de '+u.username),form=document.createElement('form');field(form,'Nueva contraseña','password','password');submit(form,'Guardar',async data=>{await api('users/'+u.id,data);show('Contraseña cambiada y sesiones cerradas.');await render()});reset.append(form);main.prepend(reset)},'secondary'))}return[u.username,u.role==='admin'?'Administrador':'Usuario',u.chat_id||'Sin vincular',u.active?'Activo':'Suspendido',u.owner?'Cuenta principal':actions]})));}
-if(tab==='access'){const c=card('Autorizar Telegram'),f=document.createElement('form');field(f,'Nombre de la persona','name');field(f,'ID de Telegram','chatId');submit(f,'Dar acceso al bot',async data=>{await api('access',{...data,status:'active'});show('Acceso autorizado.');await render()});c.append(f);main.append(c);main.append(node('p','Revocar bloquea el bot. Suspender una cuenta en Usuarios bloquea tanto el panel como el bot.','muted'));const rows=await api('access');main.append(table(['Persona','ID Telegram','Cuenta del panel','Estado','Acciones'],rows.map(r=>[r.display_name,r.chat_id,r.username||'Solo bot',r.account_active===0?node('span','Cuenta suspendida','badge off'):badge(r.status==='active'),r.owner?'Propietario':button(r.status==='active'?'Revocar':'Autorizar',async()=>{if(!confirm('¿Cambiar el acceso al bot de '+r.display_name+'?'))return;await api('access',{chatId:r.chat_id,status:r.status==='active'?'revoked':'active'});await render()},r.status==='active'?'danger':'secondary')])));}
-if(tab==='requests'){const rows=await api('requests');main.append(node('p','Las personas solicitan acceso desde el bot. Aprobar permite usar Telegram; la cuenta del panel se crea en Usuarios.','muted'));main.append(table(['Persona','ID Telegram','Fecha','Acciones'],rows.map(r=>{const a=node('div');for(const [action,label]of[['approve','Aprobar'],['reject','Rechazar']])a.append(button(label,async()=>{await api('requests',{chatId:r.chat_id,action});await render()},action==='reject'?'secondary':''));return[r.display_name,r.chat_id,r.requested_at,a]})));}
-if(tab==='audit'){const rows=await api('audit');const labels={setup:'Cuenta principal creada',login:'Inicio de sesión',user_create:'Usuario creado',user_status:'Estado de cuenta modificado',password_reset:'Contraseña restablecida',password_change:'Contraseña cambiada',bot_active:'Acceso al bot autorizado',bot_revoked:'Acceso al bot revocado',request_approve:'Solicitud aprobada',request_reject:'Solicitud rechazada',ticket_edit:'Ticket corregido',ticket_delete:'Ticket eliminado'};main.append(table(['Fecha','Responsable','Acción','Referencia'],rows.map(r=>[r.created_at,r.actor,labels[r.action]||r.action,r.target])));}
-if(tab==='account'){const c=card('Cambiar mi contraseña'),f=document.createElement('form');field(f,'Contraseña actual','currentPassword','password');field(f,'Nueva contraseña','password','password');submit(f,'Guardar y cerrar sesión',async data=>{await api('password',data);me=null;show('Contraseña cambiada. Vuelve a entrar.');await start()});c.append(f);main.append(c);}
-if(tab==='tickets'){const tickets=await api('tickets'),filter=node('input');filter.placeholder='Buscar por comercio, fecha, categoría o usuario';filter.setAttribute('aria-label','Filtrar tickets');const area=node('div');main.append(filter,area);const draw=()=>{const q=filter.value.toLowerCase();area.replaceChildren(table(['Fecha','Comercio','Total','Categoría','Usuario','Estado','Acciones'],tickets.filter(t=>[t.comercio,t.fecha,t.categoria,String(t.userId)].some(x=>x.toLowerCase().includes(q))).map(t=>{const actions=node('div');if(t.estado!=='Eliminado'){actions.append(button('Corregir',()=>editTicket(main,t),'secondary'),button('Eliminar',async()=>{if(!confirm('¿Eliminar este ticket y mover su imagen a Papelera?'))return;await api('tickets',{id:t.operationId,action:'delete'});await render()},'danger'))}return[t.fecha,t.comercio,t.total.toFixed(2)+' '+t.moneda,t.categoria,t.userId,t.estado,actions]})))};filter.oninput=draw;draw();}
+async function api(path, body) {
+  const response = await fetch('/admin/api/' + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    if (response.status === 401 && me) {
+      me = null;
+      await start();
+    }
+    const error = Error(data.error || 'No se pudo completar.');
+    error.code = data.code;
+    throw error;
+  }
+  return data;
 }
-function editTicket(main,t){document.getElementById('ticket-editor')?.remove();const c=card('Corregir ticket');c.id='ticket-editor';const f=document.createElement('form');field(f,'Fecha','fecha','date',t.fecha);field(f,'Comercio','comercio','text',t.comercio);const amount=field(f,'Total','total','number',String(t.total));amount.step='0.01';amount.min='0';const category=select(f,'Categoría','categoria',['Alimentos','Transporte','Hospedaje','Insumos','Servicios','Otros'].map(x=>[x,x]));category.value=t.categoria;submit(f,'Guardar corrección',async data=>{await api('tickets',{id:t.operationId,action:'edit',patch:{...data,total:Number(data.total)}});show('Ticket actualizado.');await render()});c.append(f,button('Cancelar',()=>c.remove(),'secondary'));main.prepend(c);c.scrollIntoView({behavior:'smooth'});}
+function button(text, action, cls = '') {
+  const b = node('button', text, cls);
+  b.type = 'button';
+  b.onclick = async () => {
+    b.disabled = true;
+    try {
+      await action();
+    } catch (e) {
+      show(e.message);
+    } finally {
+      b.disabled = false;
+    }
+  };
+  return b;
+}
+function field(form, label, name, type = 'text', value = '', required = true) {
+  const wrap = node('div'),
+    id = 'f-' + name;
+  const lab = node('label', label);
+  lab.htmlFor = id;
+  const input = document.createElement('input');
+  input.id = id;
+  input.name = name;
+  input.type = type;
+  input.required = required;
+  input.value = value;
+  if (type === 'password') {
+    input.minLength = 12;
+    input.maxLength = 128;
+    input.autocomplete = name === 'currentPassword' ? 'current-password' : 'new-password';
+  }
+  if (name === 'username') input.autocomplete = 'username';
+  wrap.append(lab, input);
+  form.append(wrap);
+  return input;
+}
+function select(form, label, name, choices) {
+  const wrap = node('div'),
+    l = node('label', label),
+    s = document.createElement('select');
+  s.name = name;
+  s.id = 'f-' + name;
+  l.htmlFor = s.id;
+  choices.forEach(([v, t]) => {
+    const o = node('option', t);
+    o.value = v;
+    s.append(o);
+  });
+  wrap.append(l, s);
+  form.append(wrap);
+  return s;
+}
+function submit(form, text, action) {
+  const b = node('button', text);
+  b.type = 'submit';
+  const row = node('div', undefined, 'actions');
+  row.append(b);
+  form.append(row);
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    b.disabled = true;
+    try {
+      await action(Object.fromEntries(new FormData(form)));
+    } catch (err) {
+      show(err.message);
+    } finally {
+      b.disabled = false;
+    }
+  };
+}
+function card(title) {
+  const c = node('section', undefined, 'card');
+  if (title) c.append(node('h2', title));
+  return c;
+}
+function table(headers, rows) {
+  const wrap = node('div', undefined, 'scroll'),
+    t = node('table'),
+    head = node('thead'),
+    tr = node('tr');
+  headers.forEach((h) => tr.append(node('th', h)));
+  head.append(tr);
+  t.append(head);
+  const body = node('tbody');
+  rows.forEach((cells) => {
+    const r = node('tr');
+    cells.forEach((c) => {
+      const td = node('td');
+      td.append(c instanceof Node ? c : document.createTextNode(String(c ?? '')));
+      r.append(td);
+    });
+    body.append(r);
+  });
+  t.append(body);
+  wrap.append(t);
+  if (!rows.length) wrap.append(node('p', 'No hay registros todavía.', 'empty'));
+  return wrap;
+}
+function badge(active) {
+  return node('span', active ? 'Activo' : 'Revocado', 'badge' + (active ? '' : ' off'));
+}
+async function auth(mode = 'login', status) {
+  root.replaceChildren();
+  const outer = node('main', undefined, 'auth');
+  outer.append(
+    node('h1', 'TicketsLicY'),
+    node('p', 'Tus tickets y accesos, en un solo lugar.', 'muted'),
+  );
+  const c = card(
+    mode === 'setup'
+      ? 'Crea tu cuenta principal'
+      : mode === 'recover'
+        ? 'Recuperar acceso'
+        : 'Iniciar sesión',
+  );
+  const f = document.createElement('form');
+  if (mode === 'setup') {
+    c.append(
+      node(
+        'p',
+        'Elige tu usuario y contraseña. El código de instalación lo entrega quien configura el panel.',
+      ),
+    );
+    field(f, 'Código de instalación', 'token', 'password');
+  }
+  if (mode === 'recover') field(f, 'Código de recuperación', 'code', 'text');
+  else field(f, 'Usuario', 'username');
+  field(
+    f,
+    mode === 'login' ? 'Contraseña' : 'Nueva contraseña (mínimo 12 caracteres)',
+    'password',
+    'password',
+  );
+  if (mode === 'login') f.elements.password.autocomplete = 'current-password';
+  submit(
+    f,
+    mode === 'setup' ? 'Crear cuenta' : mode === 'recover' ? 'Cambiar contraseña' : 'Entrar',
+    async (data) => {
+      if (mode === 'setup') {
+        const result = await api('setup', data);
+        c.replaceChildren(
+          node('h2', 'Guarda tus códigos de recuperación'),
+          node(
+            'p',
+            'Cada código sirve una sola vez para recuperar tu cuenta sin correo. Guárdalos fuera del panel.',
+          ),
+        );
+        const codes = node('div', undefined, 'codes');
+        result.recoveryCodes.forEach((code) => codes.append(node('p', code)));
+        c.append(
+          codes,
+          button('Descargar códigos', () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(
+              new Blob(
+                [
+                  [
+                    'Usuario: ' + data.username,
+                    'Panel: ' + location.origin + '/admin',
+                    '',
+                    ...result.recoveryCodes,
+                  ].join('\n'),
+                ],
+                { type: 'text/plain' },
+              ),
+            );
+            a.download = 'codigos-recuperacion.txt';
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+          }),
+          button('Ir al inicio de sesión', () => auth('login'), 'secondary'),
+        );
+      } else if (mode === 'recover') {
+        await api('recover', data);
+        show('Contraseña cambiada. Inicia sesión.');
+        await auth('login');
+      } else {
+        me = await api('login', data);
+        tab = 'overview';
+        await render();
+      }
+    },
+  );
+  c.append(f);
+  if (mode === 'login')
+    c.append(button('Usar un código de recuperación', () => auth('recover'), 'secondary'));
+  else if (mode === 'recover') c.append(button('Volver', () => auth('login'), 'secondary'));
+  outer.append(c);
+  root.append(outer);
+}
+async function start() {
+  try {
+    const s = await api('status');
+    if (!s.initialized) {
+      if (!s.setupAvailable) {
+        root.replaceChildren(
+          node(
+            'main',
+            'El panel está preparado. Falta configurar el código de instalación para crear la cuenta principal.',
+            'auth',
+          ),
+        );
+        return;
+      }
+      await auth('setup', s);
+      return;
+    }
+    try {
+      me = await api('me');
+    } catch {
+      me = null;
+    }
+    if (me) await render();
+    else await auth();
+  } catch (e) {
+    root.replaceChildren(node('main', e.message, 'auth'));
+  }
+}
+async function render() {
+  root.replaceChildren();
+  const shell = node('div', undefined, 'shell'),
+    side = node('aside');
+  side.append(node('strong', 'TicketsLicY'), node('small', 'Panel de administración'));
+  const nav = node('nav');
+  const keys = me.role === 'admin' ? Object.keys(titles) : ['overview', 'tickets', 'account'];
+  keys.forEach((key) =>
+    nav.append(
+      button(
+        titles[key],
+        async () => {
+          tab = key;
+          await render();
+        },
+        key === tab ? 'selected' : '',
+      ),
+    ),
+  );
+  side.append(nav);
+  const main = node('main'),
+    top = node('div', undefined, 'top'),
+    heading = node('div');
+  heading.append(
+    node('h1', titles[tab]),
+    node('small', me.username + ' · ' + (me.role === 'admin' ? 'Administrador' : 'Usuario')),
+  );
+  top.append(
+    heading,
+    button(
+      'Cerrar sesión',
+      async () => {
+        await api('logout', {});
+        me = null;
+        await start();
+      },
+      'secondary',
+    ),
+  );
+  main.append(top);
+  shell.append(side, main);
+  root.append(shell);
+  try {
+    await content(main);
+  } catch (e) {
+    sectionError(main, e);
+  }
+}
+function sectionError(main, error) {
+  const c = card(
+    error.code === 'HISTORY_IMPORT_PENDING'
+      ? 'Preparando el historial'
+      : 'No se pudo cargar esta sección',
+  );
+  c.classList.add('warning');
+  c.append(node('p', error.message));
+  const actions = node('div', undefined, 'actions');
+  actions.append(button('Reintentar', () => render(), 'secondary'));
+  c.append(actions);
+  main.append(c);
+}
+async function historyImages(main) {
+  const state = await api('storage');
+  if (!state.imagesPending && !state.warnings) return;
+  const c = card('Imágenes del historial anterior');
+  c.append(
+    node(
+      'p',
+      state.imagesPending +
+        ' registros necesitan su imagen original. Los datos del ticket ya están en el panel.',
+    ),
+  );
+  if (state.warnings)
+    c.append(
+      node(
+        'p',
+        state.warnings + ' registros anteriores necesitan revisión; sus originales se conservaron.',
+      ),
+    );
+  const f = document.createElement('form'),
+    label = node('label', 'Selecciona las fotos originales exportadas del sistema anterior'),
+    input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.accept = 'image/jpeg,image/png';
+  input.id = 'history-images';
+  label.htmlFor = input.id;
+  f.append(label, input);
+  submit(f, 'Importar imágenes', async () => {
+    const files = Array.from(input.files);
+    if (!files.length) throw Error('Selecciona al menos una imagen.');
+    if (files.length > 100) throw Error('Selecciona hasta 100 imágenes por lote.');
+    let imported = 0,
+      failed = [];
+    for (const file of files) {
+      try {
+        if (file.size > 5000000) throw Error('Supera 5 MB');
+        const response = await fetch('/admin/api/import-images', {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error || 'No se pudo importar');
+        imported += data.imported;
+      } catch (e) {
+        failed.push(file.name + ': ' + e.message);
+      }
+    }
+    const result = node(
+      'p',
+      imported +
+        ' imágenes recuperadas.' +
+        (failed.length
+          ? ' No se pudieron importar ' + failed.length + ': ' + failed.slice(0, 10).join('; ')
+          : ''),
+    );
+    c.append(result);
+    input.value = '';
+    show('Importación terminada. Cambia de sección para actualizar la lista.');
+  });
+  c.append(f);
+  main.append(c);
+}
+async function content(main) {
+  if (tab === 'overview') {
+    const results = await Promise.allSettled([
+      api('tickets'),
+      me.role === 'admin' ? api('requests') : Promise.resolve(null),
+    ]);
+    if (!me) return;
+    const ticketResult = results[0],
+      requestResult = results[1],
+      grid = node('div', undefined, 'grid');
+    const stat = (label, value) => {
+      const c = card();
+      c.append(node('small', label), node('div', String(value), 'stat'));
+      grid.append(c);
+    };
+    if (ticketResult.status === 'fulfilled') {
+      const visible = ticketResult.value.filter((t) => t.estado !== 'Eliminado');
+      stat('Tickets guardados', visible.length);
+      const totals = {};
+      visible.forEach((t) => (totals[t.moneda] = (totals[t.moneda] || 0) + t.total));
+      Object.entries(totals).forEach(([m, v]) => stat('Total ' + m, v.toFixed(2)));
+    } else stat('Tickets guardados', '—');
+    if (me.role === 'admin')
+      stat(
+        'Solicitudes pendientes',
+        requestResult.status === 'fulfilled' ? requestResult.value.length : '—',
+      );
+    main.append(grid);
+    if (ticketResult.status === 'rejected') sectionError(main, ticketResult.reason);
+    if (requestResult.status === 'rejected') sectionError(main, requestResult.reason);
+    main.append(
+      node(
+        'p',
+        'Consulta tus registros en Tickets. Los cambios de acceso se administran desde este panel.',
+        'muted',
+      ),
+    );
+  }
+  if (tab === 'users') {
+    const c = card('Crear usuario'),
+      f = document.createElement('form');
+    field(f, 'Usuario', 'username');
+    field(f, 'Contraseña inicial', 'password', 'password');
+    select(f, 'Permisos', 'role', [
+      ['user', 'Solo sus tickets'],
+      ['admin', 'Administrador'],
+    ]);
+    field(f, 'ID de Telegram (opcional)', 'chatId', 'text', '', false);
+    submit(f, 'Crear usuario', async (data) => {
+      await api('users', data);
+      show('Usuario creado.');
+      await render();
+    });
+    c.append(f);
+    main.append(c);
+    const users = await api('users');
+    main.append(
+      table(
+        ['Usuario', 'Permisos', 'Telegram', 'Estado', 'Acciones'],
+        users.map((u) => {
+          const actions = node('div');
+          if (!u.owner && u.id !== me.id) {
+            actions.append(
+              button(
+                u.active ? 'Suspender' : 'Activar',
+                async () => {
+                  if (!confirm('¿Cambiar el acceso de ' + u.username + '?')) return;
+                  await api('users/' + u.id, { active: !u.active });
+                  await render();
+                },
+                'secondary',
+              ),
+            );
+            actions.append(
+              button(
+                'Nueva contraseña',
+                () => {
+                  const reset = card('Cambiar contraseña de ' + u.username),
+                    form = document.createElement('form');
+                  field(form, 'Nueva contraseña', 'password', 'password');
+                  submit(form, 'Guardar', async (data) => {
+                    await api('users/' + u.id, data);
+                    show('Contraseña cambiada y sesiones cerradas.');
+                    await render();
+                  });
+                  reset.append(form);
+                  main.prepend(reset);
+                },
+                'secondary',
+              ),
+            );
+          }
+          return [
+            u.username,
+            u.role === 'admin' ? 'Administrador' : 'Usuario',
+            u.chat_id || 'Sin vincular',
+            u.active ? 'Activo' : 'Suspendido',
+            u.owner ? 'Cuenta principal' : actions,
+          ];
+        }),
+      ),
+    );
+  }
+  if (tab === 'access') {
+    const c = card('Autorizar Telegram'),
+      f = document.createElement('form');
+    field(f, 'Nombre de la persona', 'name');
+    field(f, 'ID de Telegram', 'chatId');
+    submit(f, 'Dar acceso al bot', async (data) => {
+      await api('access', { ...data, status: 'active' });
+      show('Acceso autorizado.');
+      await render();
+    });
+    c.append(f);
+    main.append(c);
+    main.append(
+      node(
+        'p',
+        'Revocar bloquea el bot. Suspender una cuenta en Usuarios bloquea tanto el panel como el bot.',
+        'muted',
+      ),
+    );
+    const rows = await api('access');
+    main.append(
+      table(
+        ['Persona', 'ID Telegram', 'Cuenta del panel', 'Estado', 'Acciones'],
+        rows.map((r) => [
+          r.display_name,
+          r.chat_id,
+          r.username || 'Solo bot',
+          r.account_active === 0
+            ? node('span', 'Cuenta suspendida', 'badge off')
+            : badge(r.status === 'active'),
+          r.owner
+            ? 'Propietario'
+            : button(
+                r.status === 'active' ? 'Revocar' : 'Autorizar',
+                async () => {
+                  if (!confirm('¿Cambiar el acceso al bot de ' + r.display_name + '?')) return;
+                  await api('access', {
+                    chatId: r.chat_id,
+                    status: r.status === 'active' ? 'revoked' : 'active',
+                  });
+                  await render();
+                },
+                r.status === 'active' ? 'danger' : 'secondary',
+              ),
+        ]),
+      ),
+    );
+  }
+  if (tab === 'requests') {
+    const rows = await api('requests');
+    main.append(
+      node(
+        'p',
+        'Las personas solicitan acceso desde el bot. Aprobar permite usar Telegram; la cuenta del panel se crea en Usuarios.',
+        'muted',
+      ),
+    );
+    main.append(
+      table(
+        ['Persona', 'ID Telegram', 'Fecha', 'Acciones'],
+        rows.map((r) => {
+          const a = node('div');
+          for (const [action, label] of [
+            ['approve', 'Aprobar'],
+            ['reject', 'Rechazar'],
+          ])
+            a.append(
+              button(
+                label,
+                async () => {
+                  await api('requests', { chatId: r.chat_id, action });
+                  await render();
+                },
+                action === 'reject' ? 'secondary' : '',
+              ),
+            );
+          return [r.display_name, r.chat_id, r.requested_at, a];
+        }),
+      ),
+    );
+  }
+  if (tab === 'audit') {
+    const rows = await api('audit');
+    const labels = {
+      setup: 'Cuenta principal creada',
+      login: 'Inicio de sesión',
+      user_create: 'Usuario creado',
+      user_status: 'Estado de cuenta modificado',
+      password_reset: 'Contraseña restablecida',
+      password_change: 'Contraseña cambiada',
+      bot_active: 'Acceso al bot autorizado',
+      bot_revoked: 'Acceso al bot revocado',
+      request_approve: 'Solicitud aprobada',
+      request_reject: 'Solicitud rechazada',
+      ticket_create: 'Ticket registrado',
+      ticket_confirm: 'Ticket confirmado',
+      ticket_edit: 'Ticket corregido',
+      ticket_delete: 'Ticket eliminado',
+      image_import: 'Imágenes anteriores importadas',
+      ticket_purge: 'Ticket borrado definitivamente',
+    };
+    main.append(
+      table(
+        ['Fecha', 'Responsable', 'Acción', 'Referencia'],
+        rows.map((r) => [r.created_at, r.actor, labels[r.action] || r.action, r.target]),
+      ),
+    );
+  }
+  if (tab === 'account') {
+    const c = card('Cambiar mi contraseña'),
+      f = document.createElement('form');
+    field(f, 'Contraseña actual', 'currentPassword', 'password');
+    field(f, 'Nueva contraseña', 'password', 'password');
+    submit(f, 'Guardar y cerrar sesión', async (data) => {
+      await api('password', data);
+      me = null;
+      show('Contraseña cambiada. Vuelve a entrar.');
+      await start();
+    });
+    c.append(f);
+    main.append(c);
+  }
+  if (tab === 'tickets') {
+    const tickets = await api('tickets');
+    if (me.role === 'admin') await historyImages(main);
+    const filter = node('input');
+    filter.placeholder = 'Buscar por comercio, fecha, categoría o usuario';
+    filter.setAttribute('aria-label', 'Filtrar tickets');
+    const area = node('div');
+    main.append(
+      button(
+        'Exportar vista CSV',
+        () => {
+          const q = filter.value.toLowerCase();
+          const rows = tickets.filter((t) =>
+            [t.comercio, t.fecha, t.categoria, String(t.userId)].some((x) =>
+              x.toLowerCase().includes(q),
+            ),
+          );
+          const cell = (v) =>
+            '\"' +
+            String(v ?? '')
+              .replace(/^[=+@\s-]/, (x) => String.fromCharCode(39) + x)
+              .replaceAll('\"', '\"\"') +
+            '\"';
+          const csv = [
+            ['Fecha', 'Comercio', 'Total', 'Moneda', 'Categoría', 'Usuario', 'Estado', 'ID'],
+            ...rows.map((t) => [
+              t.fecha,
+              t.comercio,
+              t.total,
+              t.moneda,
+              t.categoria,
+              t.userId,
+              t.estado,
+              t.operationId,
+            ]),
+          ]
+            .map((row) => row.map(cell).join(','))
+            .join('\r\n');
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(
+            new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }),
+          );
+          a.download = 'tickets.csv';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        },
+        'secondary',
+      ),
+      filter,
+      area,
+    );
+    const draw = () => {
+      const q = filter.value.toLowerCase();
+      area.replaceChildren(
+        table(
+          ['Fecha', 'Comercio', 'Total', 'Categoría', 'Usuario', 'Estado', 'Imagen', 'Acciones'],
+          tickets
+            .filter((t) =>
+              [t.comercio, t.fecha, t.categoria, String(t.userId)].some((x) =>
+                x.toLowerCase().includes(q),
+              ),
+            )
+            .map((t) => {
+              const actions = node('div');
+              if (t.estado !== 'Eliminado')
+                actions.append(
+                  button('Corregir', () => editTicket(main, t), 'secondary'),
+                  button(
+                    'Eliminar',
+                    async () => {
+                      if (
+                        !confirm(
+                          '¿Eliminar este ticket de las consultas? Su registro e imagen quedarán conservados para revisión.',
+                        )
+                      )
+                        return;
+                      await api('tickets', { id: t.operationId, action: 'delete' });
+                      await render();
+                    },
+                    'danger',
+                  ),
+                );
+              if (t.estado === 'Eliminado' && me.role === 'admin')
+                actions.append(
+                  button(
+                    'Borrar definitivamente',
+                    async () => {
+                      if (
+                        !confirm(
+                          '¿Borrar definitivamente este registro y su imagen? No se podrá recuperar desde el panel.',
+                        )
+                      )
+                        return;
+                      await api('tickets', { id: t.operationId, action: 'purge' });
+                      await render();
+                    },
+                    'danger',
+                  ),
+                );
+              let image = node('span', 'Pendiente de importar', 'muted');
+              if (t.imageAvailable) {
+                image = node('a', 'Ver imagen');
+                image.href = '/admin/api/tickets/' + encodeURIComponent(t.operationId) + '/image';
+                image.target = '_blank';
+                image.rel = 'noopener noreferrer';
+              }
+              return [
+                t.fecha,
+                t.comercio,
+                t.total.toFixed(2) + ' ' + t.moneda,
+                t.categoria,
+                t.userId,
+                t.estado,
+                image,
+                actions,
+              ];
+            }),
+        ),
+      );
+    };
+    filter.oninput = draw;
+    draw();
+  }
+}
+function editTicket(main, t) {
+  document.getElementById('ticket-editor')?.remove();
+  const c = card('Corregir ticket');
+  c.id = 'ticket-editor';
+  const f = document.createElement('form');
+  field(f, 'Fecha', 'fecha', 'date', t.fecha);
+  field(f, 'Comercio', 'comercio', 'text', t.comercio);
+  const amount = field(f, 'Total', 'total', 'number', String(t.total));
+  amount.step = '0.01';
+  amount.min = '0';
+  const category = select(
+    f,
+    'Categoría',
+    'categoria',
+    ['Alimentos', 'Transporte', 'Hospedaje', 'Insumos', 'Servicios', 'Otros'].map((x) => [x, x]),
+  );
+  category.value = t.categoria;
+  submit(f, 'Guardar corrección', async (data) => {
+    await api('tickets', {
+      id: t.operationId,
+      action: 'edit',
+      patch: { ...data, total: Number(data.total) },
+    });
+    show('Ticket actualizado.');
+    await render();
+  });
+  c.append(
+    f,
+    button('Cancelar', () => c.remove(), 'secondary'),
+  );
+  main.prepend(c);
+  c.scrollIntoView({ behavior: 'smooth' });
+}
 start();
 `;

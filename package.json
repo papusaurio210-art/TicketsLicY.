@@ -9,9 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "bootstrap:google": "NODE_USE_ENV_PROXY=1 node scripts/setup-google.mjs",
     "webhook:register": "NODE_USE_ENV_PROXY=1 node scripts/register-webhook.mjs",
-    "bootstrap:admin": "NODE_USE_ENV_PROXY=1 node scripts/setup-admin.mjs"
+    "bootstrap:admin": "NODE_USE_ENV_PROXY=1 node scripts/setup-admin.mjs",
+    "bootstrap:storage": "NODE_USE_ENV_PROXY=1 node scripts/setup-storage.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261019.1",

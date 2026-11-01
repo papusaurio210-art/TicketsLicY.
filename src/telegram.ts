@@ -38,7 +38,7 @@ export async function downloadPhoto(env: Env, fileId: string): Promise<{ bytes: 
 export function ticketSummary(ticket: Ticket, status: string, link: string): string {
   const [year, month, day] = ticket.fecha.split('-');
   const warning = suspiciousYear(ticket.fecha) || /revisar año/i.test(ticket.notas ?? '') ? '\n⚠️ Revisa el año de la fecha antes de confirmar.' : '';
-  return `${status}: ${ticket.comercio}\nFecha: ${day}/${month}/${year}${warning}\nTotal: ${ticket.total?.toFixed(2)} ${ticket.moneda}\nIVA: ${ticket.iva?.toFixed(2) ?? 'N/D'}\nCategoría: ${ticket.categoria}\nImagen: ${link}`;
+  return `${status}: ${ticket.comercio}\nFecha: ${day}/${month}/${year}${warning}\nTotal: ${ticket.total?.toFixed(2)} ${ticket.moneda}\nIVA: ${ticket.iva?.toFixed(2) ?? 'N/D'}\nCategoría: ${ticket.categoria}\nVer registro e imagen en el panel: ${link}`;
 }
 
 export function operationButtons(id: string): object {

@@ -2,19 +2,14 @@ export interface Env {
   PUBLIC_SUPPORT_EMAIL?: string;
   ADMIN_DB?: D1Database;
   ADMIN_SETUP_TOKEN?: string;
+  TICKET_IMAGES?: R2Bucket;
+  PUBLIC_APP_URL?: string;
   STATE: KVNamespace;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   ALLOWED_CHAT_IDS: string;
   OPENAI_API_KEY: string;
   OPENAI_MODEL: string;
-  GOOGLE_CLIENT_ID: string;
-  GOOGLE_CLIENT_SECRET: string;
-  GOOGLE_REFRESH_TOKEN: string;
-  GOOGLE_FOLDER_ID: string;
-  GOOGLE_SHEET_ID: string;
-  GOOGLE_TRASH_FOLDER_ID: string;
-  QUERY_SCOPE?: string;
 }
 
 export interface Ticket {
@@ -40,8 +35,10 @@ export interface Operation {
   hash: string;
   chatId: number;
   userId: number;
-  fileId: string;
-  row: number;
+  imageKey: string | null;
+  mime: string | null;
+  createdAt: string;
+  origin: 'native' | 'legacy';
   ticket: Ticket;
   status: 'OK' | 'Revisar' | 'Eliminado';
 }

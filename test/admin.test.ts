@@ -1,11 +1,12 @@
 /// <reference types="node" />
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
-import { readFileSync } from 'node:fs';
+import type { Miniflare } from 'miniflare';
+import { fixture, sampleOperation, png } from './support';
+import { getOperation, readTickets, saveNewTicket, storeImage } from '../src/storage';
+import { sha256 } from '../src/http';
 import { handleAdmin } from '../src/admin';
 import { hasBotAccess, requestAccess } from '../src/admin-store';
 import type { Env, Operation } from '../src/types';
-import { semanticKey } from '../src/ticket';
 
 let mf: Miniflare,
   env: Env,
@@ -31,36 +32,9 @@ async function login(username = 'owner', password = 'owner-password-123') {
   return result.headers.get('set-cookie')!.split(';')[0];
 }
 beforeEach(async () => {
-  mf = new Miniflare(
-    convertV4MiniflareOptions({
-      modules: true,
-      script: 'export default {fetch(){return new Response("ok")}}',
-      compatibilityDate: '2026-10-20',
-      d1Databases: ['ADMIN_DB'],
-      kvNamespaces: ['STATE'],
-    }),
-  );
-  const db = await mf.getD1Database('ADMIN_DB');
-  for (const sql of readFileSync('migrations/0001_admin.sql', 'utf8')
-    .split(';')
-    .filter((x) => x.trim()))
-    await db.prepare(sql).run();
-  env = {
-    ADMIN_DB: db as unknown as D1Database,
-    STATE: (await mf.getKVNamespace('STATE')) as unknown as KVNamespace,
-    ADMIN_SETUP_TOKEN: 'a'.repeat(64),
-    ALLOWED_CHAT_IDS: '123',
-    TELEGRAM_BOT_TOKEN: 'bot',
-    TELEGRAM_WEBHOOK_SECRET: 'secret',
-    OPENAI_API_KEY: 'key',
-    OPENAI_MODEL: 'test',
-    GOOGLE_CLIENT_ID: 'id',
-    GOOGLE_CLIENT_SECRET: 'secret',
-    GOOGLE_REFRESH_TOKEN: 'refresh',
-    GOOGLE_FOLDER_ID: 'folder',
-    GOOGLE_SHEET_ID: 'sheet',
-    GOOGLE_TRASH_FOLDER_ID: 'trash',
-  };
+  const current = await fixture();
+  mf = current.mf;
+  env = current.env;
   cookie = '';
   const setup = await call('setup', {
     token: 'a'.repeat(64),
@@ -77,53 +51,6 @@ afterEach(async () => {
 });
 
 describe('panel con D1 real', () => {
-  it.each([
-    { name: 'cliente rechazado', status: 401, response: { error: 'invalid_client', error_description: 'private-upstream-value' }, stage: 'authorization', code: 'GOOGLE_CLIENT_INVALID' },
-    { name: 'permisos insuficientes', status: 403, response: { error: { details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }, stage: 'sheets', code: 'GOOGLE_SCOPE_MISSING' },
-    { name: 'API deshabilitada', status: 403, response: { error: { details: [{ reason: 'SERVICE_DISABLED' }] } }, stage: 'sheets', code: 'GOOGLE_API_DISABLED' },
-    { name: 'cuenta sin acceso', status: 403, response: { error: { status: 'PERMISSION_DENIED' } }, stage: 'sheets', code: 'GOOGLE_PERMISSION_DENIED' },
-    { name: 'hoja no encontrada', status: 404, response: { error: { status: 'NOT_FOUND' } }, stage: 'sheets', code: 'GOOGLE_SHEET_NOT_FOUND' },
-    { name: 'rango inválido', status: 400, response: { error: { status: 'INVALID_ARGUMENT' } }, stage: 'sheets', code: 'GOOGLE_SHEET_INVALID' },
-    { name: 'columnas modificadas', status: 200, response: { values: [['Columna incorrecta']] }, stage: 'sheets', code: 'GOOGLE_SHEET_HEADERS_INVALID' },
-  ])('diagnostica $name sin exponer respuestas privadas', async (scenario) => {
-    env.GOOGLE_CLIENT_ID = ' client-' + scenario.code + ' ';
-    env.GOOGLE_CLIENT_SECRET = ' private-secret ';
-    env.GOOGLE_REFRESH_TOKEN = ' private-refresh ';
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (String(input).includes('oauth2')) {
-        const form = new URLSearchParams(String(init?.body));
-        expect(form.get('client_secret')).toBe('private-secret');
-        if (scenario.stage !== 'authorization') return Response.json({ access_token: 'access', expires_in: 3600 });
-      }
-      return Response.json(scenario.response, { status: scenario.status });
-    });
-    const response = await call('tickets');
-    expect(response.status).toBe(424);
-    const data = await response.json() as { code: string; stage: string; error: string };
-    expect(data.code).toBe(scenario.code);
-    expect(data.stage).toBe(scenario.stage);
-    const stored = await env.ADMIN_DB!.prepare("SELECT value FROM settings WHERE key='google_connection_status'").first<{value:string}>();
-    expect(JSON.parse(stored!.value).code).toBe(scenario.code);
-    for (const text of [JSON.stringify(data), stored!.value]) {
-      expect(text).not.toContain('private-secret');
-      expect(text).not.toContain('private-refresh');
-      expect(text).not.toContain('private-upstream-value');
-    }
-  });
-  it('explica la autorización de Google vencida sin bloquear usuarios y solicitudes', async () => {
-    env.GOOGLE_CLIENT_ID = 'expired-client';
-    env.GOOGLE_REFRESH_TOKEN = 'expired-refresh';
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 }));
-    const response = await call('tickets');
-    expect(response.status).toBe(424);
-    const data = await response.json() as { error: string; code: string };
-    expect(data.code).toBe('GOOGLE_AUTH_REQUIRED');
-    expect(data.error).toContain('nueva autorización');
-    expect(data.error).not.toContain('expired-refresh');
-    expect((await call('users')).status).toBe(200);
-    expect((await call('requests')).status).toBe(200);
-  });
   it('protege instalación, contraseñas, cookies y origen de los cambios', async () => {
     expect(
       (
@@ -185,57 +112,18 @@ describe('panel con D1 real', () => {
     const session = await login('person', 'person-password-123');
     for (const path of ['users', 'requests', 'access', 'audit'])
       expect((await call(path, undefined, session)).status).toBe(403);
-    const headers = [
-      'Fecha captura',
-      'Fecha ticket',
-      'Comercio',
-      'RFC',
-      'Folio',
-      'Moneda',
-      'Subtotal',
-      'IVA',
-      'Propina',
-      'Total',
-      'Método de pago',
-      'Categoría',
-      'Confianza',
-      'Estado',
-      'Link Drive',
-      'Quién lo envió',
-      'ID de operación',
-      'Hash',
-    ];
-    const row = (id: number) => [
-      '',
-      '2026-10-21',
-      'Shop',
-      '',
-      '',
-      'MXN',
-      100,
-      16,
-      0,
-      116,
-      'Tarjeta',
-      'Insumos',
-      0.9,
-      'OK',
-      '',
-      id,
-      'op-' + id,
-      'hash',
-    ];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('oauth2')
-        ? Response.json({ access_token: 'test-token', expires_in: 3600 })
-        : Response.json({ values: [headers, row(123), row(456)] }),
-    );
+    const first = sampleOperation(123),
+      second = sampleOperation(456);
+    await storeImage(env, first, png);
+    await storeImage(env, second, png);
+    await saveNewTicket(env, first, 1001);
+    await saveNewTicket(env, second, 1002);
     const tickets = (await (await call('tickets', undefined, session)).json()) as {
       userId: number;
     }[];
     expect(tickets.map((x) => x.userId)).toEqual([456]);
-    await env.STATE.put('op:other', JSON.stringify({ id: 'other', status: 'OK', chatId: 123 }));
-    expect((await call('tickets', { id: 'other', action: 'delete' }, session)).status).toBe(403);
+
+    expect((await call('tickets', { id: first.id, action: 'delete' }, session)).status).toBe(403);
     const users = (await (await call('users')).json()) as { id: string; username: string }[];
     const target = users.find((x) => x.username === 'person')!;
     expect((await call('users/' + target.id, { active: false })).status).toBe(200);
@@ -252,66 +140,53 @@ describe('panel con D1 real', () => {
     ).toBe(403);
     await login('owner', 'new-owner-password');
   });
-  it('corrige y elimina un ticket, actualiza deduplicación y deja historial', async () => {
-    const op: Operation = {
-      id: 'demo',
-      hash: 'image-hash',
-      chatId: 123,
-      userId: 123,
-      fileId: 'image',
-      row: 2,
-      status: 'OK',
-      ticket: {
-        comercio: 'Mercado',
-        fecha: '2026-10-21',
-        folio: 'abc',
-        rfc_emisor: null,
-        hora: null,
-        moneda: 'MXN',
-        subtotal: 100,
-        iva: 16,
-        propina: 0,
-        total: 116,
-        metodo_pago: 'Tarjeta',
-        ultimos_4_tarjeta: null,
-        categoria: 'Insumos',
-        confianza: 0.95,
-        notas: null,
-      },
-    };
-    await env.STATE.put('op:demo', JSON.stringify(op));
-    await env.STATE.put('hash:image-hash', 'demo');
-    const oldKey = (await semanticKey(op.ticket))!;
-    await env.STATE.put(oldKey, 'demo');
-    const updates: unknown[] = [];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = String(input);
-      if (url.includes('oauth2'))
-        return Response.json({ access_token: 'test-token', expires_in: 3600 });
-      if (url.includes('fields=parents')) return Response.json({ parents: ['folder'] });
-      if (url.includes('/values/')) updates.push(JSON.parse(String(init?.body)).values);
-      return Response.json({});
-    });
+  it('corrige y elimina un ticket en D1 y conserva la imagen privada para revisión', async () => {
+    const op = sampleOperation();
+    op.hash = await sha256(png);
+    await storeImage(env, op, png);
+    await saveNewTicket(env, op, 3000);
     expect(
-      (await call('tickets', { id: 'demo', action: 'edit', patch: { total: -1 } })).status,
+      (await call('tickets', { id: op.id, action: 'edit', patch: { total: -1 } })).status,
     ).toBe(400);
     expect(
-      (await call('tickets', { id: 'demo', action: 'edit', patch: { total: 117 } })).status,
+      (await call('tickets', { id: op.id, action: 'edit', patch: { total: 117 } })).status,
     ).toBe(200);
-    const updated = await env.STATE.get<Operation>('op:demo', 'json');
-    expect(updated!.ticket.total).toBe(117);
-    expect(await env.STATE.get(oldKey)).toBeNull();
-    expect(await env.STATE.get((await semanticKey(updated!.ticket))!)).toBe('demo');
-    expect(updates).toHaveLength(1);
-    expect((await call('tickets', { id: 'demo', action: 'delete' })).status).toBe(200);
-    expect((await env.STATE.get<Operation>('op:demo', 'json'))!.status).toBe('Eliminado');
-    expect(await env.STATE.get('hash:image-hash')).toBeNull();
+    expect((await getOperation(env, op.id))!.ticket.total).toBe(117);
+    expect((await call('tickets/' + op.id + '/image')).status).toBe(200);
+    expect((await call('tickets/' + op.id + '/image', undefined, '')).status).toBe(401);
+    expect((await call('tickets', { id: op.id, action: 'delete' })).status).toBe(200);
+    expect((await getOperation(env, op.id))!.status).toBe('Eliminado');
+    expect(await env.TICKET_IMAGES!.head(op.imageKey!)).not.toBeNull();
     const actions = (
       await env
-        .ADMIN_DB!.prepare("SELECT action FROM audit WHERE target='demo' ORDER BY id")
+        .ADMIN_DB!.prepare('SELECT action FROM audit WHERE target=? ORDER BY id')
+        .bind(op.id)
         .all<{ action: string }>()
     ).results.map((x) => x.action);
-    expect(actions).toEqual(['ticket_edit', 'ticket_delete']);
+    expect(actions).toEqual(['ticket_create', 'ticket_edit', 'ticket_delete']);
+  });
+  it('impide que un usuario abra imágenes ajenas y que importe archivos como administrador', async () => {
+    await call('users', {
+      username: 'person',
+      password: 'person-password-123',
+      role: 'user',
+      chatId: '456',
+    });
+    const session = await login('person', 'person-password-123');
+    const op = sampleOperation(123);
+    op.hash = await sha256(png);
+    await storeImage(env, op, png);
+    await saveNewTicket(env, op, 4000);
+    expect((await call('tickets/' + op.id + '/image', undefined, session)).status).toBe(404);
+    const response = await handleAdmin(
+      new Request(origin + '/admin/api/import-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png', Origin: origin, Cookie: session },
+        body: png,
+      }),
+      env,
+    );
+    expect(response.status).toBe(403);
   });
   it('limita intentos de inicio de sesión', async () => {
     let result: Response;

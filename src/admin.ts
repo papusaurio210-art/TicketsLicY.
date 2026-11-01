@@ -13,8 +13,17 @@ import {
   type Account,
 } from './admin-store';
 import { adminHtml, adminJs, adminCss, adminIcon } from './admin-ui';
-import { GoogleIntegrationError, recordGoogleStatus, readTickets, updateTicket, relocateImage, moveToTrash } from './google';
-import { semanticKey, validateTicket } from './ticket';
+import {
+  StorageError,
+  getOperation,
+  importImage,
+  importLegacyBatch,
+  purgeTicket,
+  readImage,
+  readTickets,
+  updateTicket,
+} from './storage';
+import { validateTicket } from './ticket';
 
 class ApiError extends Error {
   constructor(
@@ -61,30 +70,53 @@ async function routes(request: Request, env: Env): Promise<Response> {
     throw new ApiError(503, 'El panel aún necesita su base de datos. El bot sigue disponible.');
   const db = env.ADMIN_DB;
   let body: Record<string, unknown> = {};
+  let imageUpload: ArrayBuffer | undefined;
+  const isImageUpload = path === '/admin/api/import-images';
+  if (isImageUpload && request.method === 'POST') {
+    const uploader = await sessionAccount(request, env);
+    if (!uploader) throw new ApiError(401, 'Inicia sesión para continuar.');
+    admin(uploader);
+  }
   if (request.method !== 'GET') {
     if (request.method !== 'POST') throw new ApiError(405, 'Método no permitido.');
     if (request.headers.get('Origin') !== url.origin)
       throw new ApiError(403, 'Origen no permitido.');
-    if (!request.headers.get('Content-Type')?.startsWith('application/json'))
+    if (!isImageUpload && !request.headers.get('Content-Type')?.startsWith('application/json'))
       throw new ApiError(400, 'Formato no permitido.');
     const reader = request.body?.getReader();
     const decoder = new TextDecoder();
-    let text = '', size = 0;
+    let text = '',
+      size = 0;
+    const chunks: Uint8Array[] = [];
+    const limit = isImageUpload ? 5_000_000 : 8192;
     if (reader) {
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
         size += chunk.value.byteLength;
-        if (size > 8192) { await reader.cancel(); throw new ApiError(413, 'Solicitud demasiado grande.'); }
-        text += decoder.decode(chunk.value, { stream: true });
+        if (size > limit) {
+          await reader.cancel();
+          throw new ApiError(413, 'Solicitud demasiado grande.');
+        }
+        if (isImageUpload) chunks.push(chunk.value);
+        else text += decoder.decode(chunk.value, { stream: true });
       }
       text += decoder.decode();
     }
-    try {
-      body = JSON.parse(text);
-    } catch {
-      throw new ApiError(400, 'Solicitud inválida.');
-    }
+    if (isImageUpload) {
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      imageUpload = bytes.buffer;
+    } else
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new ApiError(400, 'Solicitud inválida.');
+      }
     if (!body || typeof body !== 'object' || Array.isArray(body))
       throw new ApiError(400, 'Solicitud inválida.');
   }
@@ -365,33 +397,68 @@ async function routes(request: Request, env: Env): Promise<Response> {
     admin(user);
     return json((await db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT 100').all()).results);
   }
-  if (path === '/admin/api/tickets') {
-    if (request.method === 'GET') {
-      const own = await db
-        .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
-        .bind(user.id)
-        .first<{ chat_id: string }>();
-      return json(
-        (await readTickets(env)).filter(
-          (t) => user.role === 'admin' || String(t.userId) === own?.chat_id,
-        ),
-      );
-    }
-    const id = typeof body.id === 'string' ? body.id : '';
-    const op = await env.STATE.get<Operation>(`op:${id}`, 'json');
-    if (!op || op.status === 'Eliminado') throw new ApiError(404, 'Ticket no disponible.');
+  if (path === '/admin/api/storage' && request.method === 'GET') {
+    admin(user);
+    const migration = await importLegacyBatch(env);
+    const counts = await db
+      .prepare(
+        'SELECT count(*) AS total,sum(CASE WHEN image_key IS NULL THEN 1 ELSE 0 END) AS missing FROM tickets',
+      )
+      .first<{ total: number; missing: number | null }>();
+    return json({ ...migration, total: counts?.total ?? 0, imagesPending: counts?.missing ?? 0 });
+  }
+  if (path === '/admin/api/import-images' && request.method === 'POST') {
+    admin(user);
+    if (!imageUpload) throw new ApiError(400, 'Selecciona una imagen.');
+    const count = await importImage(env, imageUpload);
+    await audit(env, user.username, 'image_import', String(count)).run();
+    return json({ imported: count });
+  }
+  const imageRoute = path.match(/^\/admin\/api\/tickets\/([a-zA-Z0-9_-]{1,64})\/image$/);
+  if (imageRoute && request.method === 'GET') {
+    const op = await getOperation(env, imageRoute[1]);
+    if (!op) throw new ApiError(404, 'Imagen no disponible.');
     const own = await db
       .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
       .bind(user.id)
       .first<{ chat_id: string }>();
+    if (user.role !== 'admin' && (String(op.chatId) !== own?.chat_id || op.status === 'Eliminado'))
+      throw new ApiError(404, 'Imagen no disponible.');
+    const image = await readImage(env, op);
+    if (!image) throw new ApiError(404, 'La imagen de este registro está pendiente de importar.');
+    return new Response(image.body, {
+      headers: {
+        'Content-Type': op.mime ?? 'application/octet-stream',
+        'Content-Disposition': `inline; filename="ticket-${op.id}.${op.mime === 'image/png' ? 'png' : 'jpg'}"`,
+      },
+    });
+  }
+  if (path === '/admin/api/tickets') {
+    const own = await db
+      .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
+      .bind(user.id)
+      .first<{ chat_id: string }>();
+    if (request.method === 'GET')
+      return json(
+        user.role === 'admin'
+          ? await readTickets(env)
+          : own
+            ? await readTickets(env, Number(own.chat_id))
+            : [],
+      );
+    const id = typeof body.id === 'string' ? body.id : '';
+    const op = await getOperation(env, id);
+    if (!op) throw new ApiError(404, 'Ticket no disponible.');
+    if (body.action === 'purge') {
+      admin(user);
+      await purgeTicket(env, op, user.username);
+      return json({ ok: true });
+    }
+    if (op.status === 'Eliminado') throw new ApiError(404, 'Ticket no disponible.');
     if (user.role !== 'admin' && String(op.chatId) !== own?.chat_id)
       throw new ApiError(403, 'Sin permiso para este ticket.');
-    const oldKey = await semanticKey(op.ticket),
-      oldDate = op.ticket.fecha;
-    if (body.action === 'delete') {
-      await moveToTrash(env, op.fileId);
-      op.status = 'Eliminado';
-    } else if (body.action === 'edit') {
+    if (body.action === 'delete') op.status = 'Eliminado';
+    else if (body.action === 'edit') {
       const patch = body.patch as Partial<Ticket>;
       if (
         !patch ||
@@ -403,17 +470,8 @@ async function routes(request: Request, env: Env): Promise<Response> {
       validateTicket(candidate);
       op.ticket = candidate;
       op.status = 'Revisar';
-      if (op.ticket.fecha !== oldDate) await relocateImage(env, op);
     } else throw new ApiError(400, 'Acción inválida.');
-    await updateTicket(env, op);
-    await env.STATE.put(`op:${id}`, JSON.stringify(op));
-    if (oldKey) await env.STATE.delete(oldKey);
-    if (op.status === 'Eliminado') await env.STATE.delete(`hash:${op.hash}`);
-    else {
-      const key = await semanticKey(op.ticket);
-      if (key) await env.STATE.put(key, id);
-    }
-    await audit(env, user.username, `ticket_${body.action}`, id).run();
+    await updateTicket(env, op, user.username, `ticket_${body.action}`);
     return json({ ok: true });
   }
   throw new ApiError(404, 'No encontrado.');
@@ -424,13 +482,11 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   try {
     response = await routes(request, env);
   } catch (error) {
-    if (error instanceof GoogleIntegrationError) {
-      await recordGoogleStatus(env, error);
-      console.error('Google integration failed', { code: error.code, stage: error.stage, status: error.upstreamStatus });
-      response = json({ error: error.message, code: error.code, stage: error.stage }, 424);
-    }
+    if (error instanceof StorageError)
+      response = json({ error: error.message, code: error.code }, error.status);
     else if (error instanceof ApiError) response = json({ error: error.message }, error.status);
-    else if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) response = json({ error: 'Ese usuario o ID de Telegram ya está asignado.' }, 409);
+    else if (error instanceof Error && error.message.includes('UNIQUE constraint failed'))
+      response = json({ error: 'Ese usuario o ID de Telegram ya está asignado.' }, 409);
     else if (
       error instanceof Error &&
       /^(Usa un nombre|La contraseña|Fecha inválida|Falta el comercio|Categoría inválida|total inválido|No pude leer)/.test(

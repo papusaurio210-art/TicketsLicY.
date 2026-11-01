@@ -1,48 +1,60 @@
-# TicketsLicY — bot de tickets
+# TicketsLicY
 
-Worker de Cloudflare que recibe fotos por Telegram, extrae datos con OpenAI y registra la imagen y sus datos en Google Drive y Sheets. La especificación original está en el documento DOCX de este repositorio.
+Bot privado de Telegram para registrar tickets desde una foto. El panel centraliza los registros, las imágenes, las solicitudes y los permisos. El almacenamiento funciona en Cloudflare: **D1** para datos, **R2** para imágenes privadas y **KV** para estado temporal. OpenAI extrae la información de las fotos.
 
-Para usar el bot sin detalles técnicos, consulta la [guía rápida de uso](docs/Guia_rapida_TicketsLicY.docx).
+- [Guía rápida de uso (Word)](docs/Guia_rapida_TicketsLicY.docx)
+- [Administración del panel](docs/panel-administracion.md)
+- [Importación del historial](docs/importar-historial.md)
+- [Especificación del proyecto (Word)](docs/Especificacion_TicketsLicY.docx)
 
-El bot acepta únicamente chats privados autorizados. Inicialmente usa `ALLOWED_CHAT_IDS`; al instalar el panel, los accesos se importan a D1 y se administran desde allí. Los grupos se ignoran.
+## Usar el bot
 
-## Panel de administración
+`/start` muestra los botones Nuevo ticket, Mis tickets, Este mes, Buscar y Ayuda. La corrección permite elegir un campo y escribir su valor; incluye Cancelar. El botón Correcto confirma el ticket. Eliminar lo oculta de las consultas normales sin borrar su imagen. Los comandos anteriores siguen disponibles.
 
-En `/admin` se gestionan cuentas con usuario y contraseña, solicitudes y accesos a Telegram, tickets y actividad. Los administradores gestionan todos los registros; cada usuario ve solo los suyos. Consulta la [preparación y uso del panel](docs/panel-administracion.md). La base D1 y el código inicial de instalación deben configurarse antes del primer uso.
+Cada usuario ve sus propios tickets. Los grupos se ignoran. La detección de duplicados compara hash y, cuando existe folio, comercio, fecha, total y folio dentro del mismo usuario. D1 aplica los límites y la unicidad de forma transaccional; se permiten 30 tickets nuevos por chat y día UTC.
 
-## Consultas del bot
+## Panel
 
-Cada chat autorizado ve solo los tickets que envió. Las consultas leen Google Sheets, que es la fuente de verdad; los tickets con estado `Eliminado` no aparecen ni suman.
+Abre `/admin` para entrar con usuario y contraseña. Los administradores pueden gestionar cuentas, solicitudes, accesos, registros y sus imágenes. Un usuario normal solo ve sus registros. Las imágenes se entregan por una ruta que comprueba la sesión y los permisos; el bucket no tiene acceso público.
 
-- `/ultimos`: muestra los cinco registros más recientes.
-- `/total_mes`: suma los tickets del mes actual por moneda, según la fecha del ticket.
-- `/total_mes 2026-09`: suma otro mes.
-- `/buscar mercado`: busca en comercio, folio o categoría y muestra hasta cinco resultados.
-- `/buscar 2026-09`: muestra tickets de ese mes.
+La cuenta principal se crea una sola vez con un código de instalación y entrega códigos de recuperación sin correo. Inicialmente se importan los IDs existentes de `ALLOWED_CHAT_IDS`; desde entonces el panel es la autoridad para conceder y revocar el acceso.
 
-Las búsquedas son concretas; el bot aún no interpreta preguntas en lenguaje natural. `/start` muestra un teclado fijo con **Nuevo ticket**, **Mis tickets**, **Este mes**, **Buscar** y **Ayuda**. **Buscar** pide una palabra o un mes y permite cancelar con un botón. Los comandos anteriores siguen disponibles. Después de registrar el ticket, el botón **Corregir** muestra los datos editables: se elige uno y se envía el valor nuevo sin escribir `campo=valor`. El mensaje que pide el valor incluye un botón **Cancelar**. La fecha acepta `DD/MM/AAAA` o `AAAA-MM-DD`; al cambiarla, la imagen se mueve a la carpeta correspondiente en Drive. Una fecha del año anterior cercana al día actual se señala para revisar el año, sin modificarla automáticamente.
+## Configuración
 
-## Desarrollo local
+Recursos de `wrangler.toml`:
 
-Requiere Node.js 20 o superior. Ejecuta `npm ci`, `npm run typecheck`, `npm test` y `npm run dev`. `GET /health` responde `{"ok":true}`. `POST /telegram` requiere `X-Telegram-Bot-Api-Secret-Token`; el webhook responde rápido y procesa en segundo plano.
+| Binding | Uso |
+|---|---|
+| `ADMIN_DB` | Base D1 de cuentas y tickets |
+| `TICKET_IMAGES` | Bucket privado R2 |
+| `STATE` | KV para conversaciones, recuperación temporal e importación antigua |
 
-Para llamadas reales crea `.dev.vars` (está ignorado por Git) con estos nombres y tus valores: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OPENAI_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `ALLOWED_CHAT_IDS`, `GOOGLE_FOLDER_ID`, `GOOGLE_SHEET_ID` y `GOOGLE_TRASH_FOLDER_ID`. Nunca subas secretos al repositorio. En producción configura esos mismos nombres como secretos del Worker; los IDs y chats también se guardan allí para evitar publicarlos en Git.
+Secretos: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OPENAI_API_KEY` y `ADMIN_SETUP_TOKEN` solo para la instalación inicial. `ALLOWED_CHAT_IDS` conserva los IDs iniciales para el primer administrador. No subas secretos al repositorio.
 
-## Preparación de Google
+Variables públicas: `OPENAI_MODEL`, `PUBLIC_APP_URL` (sin barra final) y `PUBLIC_SUPPORT_EMAIL`. El modelo actual es `gpt-5-nano`; sus precios y precisión deben revisarse con uso real. El límite de gasto de la cuenta de OpenAI se configura en su panel.
 
-Sigue la [guía de autorización](docs/google-setup.md) para crear el proyecto y obtener un refresh token sin compartirlo por chat.
+## Preparar y desplegar
 
-Habilita Drive API y Sheets API en Google Cloud. Crea un cliente OAuth de aplicación de escritorio o web y autoriza la cuenta propietaria con los scopes `https://www.googleapis.com/auth/drive.file` y `https://www.googleapis.com/auth/spreadsheets`. Publica la pantalla de consentimiento en modo **En producción** para evitar que el refresh token de una app en pruebas caduque tras siete días. Con las tres variables `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y `GOOGLE_REFRESH_TOKEN` en el entorno local, ejecuta `npm run bootstrap:google`. El script crea o reutiliza una carpeta `Tickets`, su subcarpeta `Papelera` y la hoja con sus encabezados; imprime los tres IDs para configurar el Worker. No imprime credenciales.
+1. Ejecuta `npm ci` con Node.js 20 o superior.
+2. Para una instalación nueva, configura el acceso de Cloudflare en el entorno y ejecuta `npm run bootstrap:admin`. El token necesita D1 Edit, Workers Scripts Edit y Account Settings Read.
+3. Añade Workers R2 Storage Edit al token para preparar imágenes. Ejecuta `npm run bootstrap:storage`: crea o reutiliza `ticketslicy-images`, desactiva su acceso público y aplica `migrations/0002_tickets.sql` a la base configurada.
+4. Ejecuta `npm run typecheck`, `npm test` y `npx wrangler deploy --dry-run`.
+5. Sube el commit a `main`. Workers Builds usa `npm ci` y `npx wrangler deploy`. Conserva su token independiente y confirma que el build termine correctamente. Los cambios de esquema requieren aplicar la migración correspondiente antes de publicar el código que la usa.
+6. En una instalación nueva, abre `/admin`, usa el código local `.admin-setup.txt` (ignorado por Git) y elige tus credenciales. Guarda los códigos de recuperación.
+7. Registra `/telegram` mediante `npm run webhook:register`, con `WORKER_URL`, el token de Telegram y el secreto del webhook configurados en el entorno.
 
-## Despliegue
+`/` y `/privacy` son páginas públicas informativas. `/health` comprueba que el Worker responde, no hace llamadas a OpenAI ni valida toda la infraestructura.
 
-1. El namespace KV `ticketslicy-state` ya está creado y vinculado como `STATE` en `wrangler.toml`.
-2. Configura los diez nombres indicados arriba con `wrangler secret put` o en el panel de Cloudflare. `OPENAI_MODEL` es configurable; el valor actual es `gpt-5-nano`. Se eligió por el precio mostrado en la tabla de OpenAI el 26 de octubre de 2026 ($0.05 por millón de tokens de entrada y $0.40 por millón de salida). Hay que medir su precisión con tickets reales antes de adoptarlo de forma definitiva.
-3. Cloudflare Workers Builds está conectado a este repositorio y a la rama `main`; usa `npm ci` como comando de build y `npx wrangler deploy` como comando de deploy. Cada cambio requiere un commit y un `git push` a `main`; confirma que el build termine correctamente. Cloudflare usa un token propio de Workers Builds que debe permanecer activo para los despliegues automáticos.
-4. Tras desplegar y verificar las variables, configura `WORKER_URL` con la URL HTTPS pública del Worker y ejecuta `npm run webhook:register` con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_WEBHOOK_SECRET` en el entorno. El script registra `/telegram` y el secreto de webhook en Telegram.
+## Desarrollo y pruebas
 
-La integración real con Telegram, OpenAI y Google requiere cuentas y credenciales; `npm test` usa dobles locales y no realiza llamadas externas. Mantén el límite de gasto de OpenAI y revisa las políticas de retención de los tickets.
+`npm run dev` usa los recursos locales de Wrangler. Aplica las migraciones a D1 local antes de probar el panel. Las pruebas automatizadas usan D1, R2 y KV locales con Miniflare, y dobles para Telegram y OpenAI. Cubren permisos, imágenes privadas, recuperación, límites, duplicados e importación. No crean tickets de producción.
 
-## Estado de validación
+La foto debe ser JPG/PNG de hasta 5 MB. Las fechas se mantienen como aparecen en el ticket; las sospechosas se marcan para revisión. La corrección de fecha no cambia la ubicación de la imagen.
 
-La comprobación de tipos, las pruebas locales y `wrangler deploy --dry-run` validan el código y el paquete del Worker. El Worker está desplegado en `https://ticketslicy-bot.willicer1313.workers.dev` y Telegram tiene registrado su webhook; Google OAuth, Sheets y Drive respondieron correctamente con la cuenta configurada. El primer build automático desde GitHub se completó y el usuario probó el registro de una foto y la corrección de su fecha. Queda probar las consultas, la eliminación y más tickets reales. KV limita el gasto por chat y día, pero sus contadores y marcas de duplicado no son transacciones atómicas; antes de aumentar el volumen conviene pasar esas operaciones a Durable Objects o D1.
+## Datos anteriores
+
+Al consultar tickets se recuperan automáticamente los registros `op:` de KV, en lotes pequeños e idempotentes. Los originales se conservan. Las imágenes que solo estaban en el proveedor anterior requieren sus archivos originales; el panel permite importarlas por hash. Un registro sin imagen se muestra como Pendiente de importar, no como un enlace externo roto. Consulta la guía de importación antes de limpiar el almacenamiento anterior.
+
+## Límites de operación
+
+La escritura de una imagen en R2 y el registro en D1 no forman una única transacción. El bot conserva temporalmente la operación para reintentar sin repetir la extracción cuando falla D1. Una interrupción justo antes de guardar ese estado puede requerir repetir el procesamiento. Una revocación bloquea las siguientes interacciones, pero una operación ya iniciada puede terminar. Las copias de seguridad y la política de retención deben definirse según el uso del responsable.

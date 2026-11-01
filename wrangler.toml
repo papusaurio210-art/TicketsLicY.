@@ -9,9 +9,14 @@ id = "bf4673dafbdf44ccb0e8d0e05d135ad6"
 [vars]
 OPENAI_MODEL = "gpt-5-nano"
 PUBLIC_SUPPORT_EMAIL = "papusaurio210@gmail.com"
+PUBLIC_APP_URL = "https://ticketslicy-bot.willicer1313.workers.dev"
 
 [[d1_databases]]
 binding = "ADMIN_DB"
 database_name = "ticketslicy-admin"
 database_id = "b1f908c9-1b83-4955-a9bc-35383227ba7b"
 migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "TICKET_IMAGES"
+bucket_name = "ticketslicy-images"
