@@ -22,6 +22,8 @@ La instalación inicial se permite una sola vez mediante una operación atómica
 
 Puedes crear una cuenta del panel para una persona cuyo ID ya tenga acceso al bot, vinculando ese ID al crearla. No se puede asignar el mismo ID a dos cuentas. El panel no concede permisos de Google Drive: el acceso directo a las imágenes se mantiene privado y separado de los permisos del bot.
 
+Si Google rechaza su autorización, el resumen y la sección de tickets muestran un aviso con **Reintentar**; las solicitudes, cuentas y accesos siguen disponibles. Los totales no se presentan como cero cuando no se pudieron consultar. Para recuperar la lectura de Sheets y el guardado en Drive, sigue los [pasos para restablecer Google](google-setup.md#restablecer-la-conexión). No crees otra cuenta del panel ni otras carpetas u hojas para resolverlo.
+
 ## Protección y límites
 
 Las contraseñas usan PBKDF2-SHA256 con sal aleatoria y 100.000 iteraciones. Las sesiones duran ocho horas y se guardan como hashes; la cookie es Secure, HttpOnly y SameSite=Strict. Los cambios requieren el mismo origen. Se limitan los intentos de autenticación y recuperación a 15 cada 15 minutos por IP y operación. Los códigos de recuperación se guardan como hashes.

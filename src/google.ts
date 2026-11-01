@@ -2,16 +2,30 @@ import { requestJson } from './http';
 import type { Env, Operation, Ticket } from './types';
 import { parseTickets, type SheetTicket } from './queries';
 
-let tokenCache: { token: string; expires: number } | undefined;
+export class GoogleAuthorizationError extends Error {
+  readonly code = 'GOOGLE_AUTH_REQUIRED';
+  constructor() {
+    super('La conexión con Google necesita una nueva autorización. El administrador debe restablecerla para consultar los tickets.');
+    this.name = 'GoogleAuthorizationError';
+  }
+}
+
+let tokenCache: { token: string; expires: number; clientId: string; refreshToken: string } | undefined;
 
 async function accessToken(env: Env): Promise<string> {
-  if (tokenCache && tokenCache.expires > Date.now()) return tokenCache.token;
+  if (tokenCache && tokenCache.expires > Date.now() && tokenCache.clientId === env.GOOGLE_CLIENT_ID && tokenCache.refreshToken === env.GOOGLE_REFRESH_TOKEN) return tokenCache.token;
   const body = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.GOOGLE_REFRESH_TOKEN, grant_type: 'refresh_token' });
-  const data = await requestJson<{ access_token: string; expires_in: number }>('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body,
-  });
-  tokenCache = { token: data.access_token, expires: Date.now() + Math.min(data.expires_in - 120, 3300) * 1000 };
-  return data.access_token;
+  try {
+    const data = await requestJson<{ access_token: string; expires_in: number }>('https://oauth2.googleapis.com/token', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body,
+    });
+    tokenCache = { token: data.access_token, expires: Date.now() + Math.min(data.expires_in - 120, 3300) * 1000, clientId: env.GOOGLE_CLIENT_ID, refreshToken: env.GOOGLE_REFRESH_TOKEN };
+    return data.access_token;
+  } catch (error) {
+    tokenCache = undefined;
+    if (error instanceof Error && /"error"\s*:\s*"invalid_grant"/.test(error.message)) throw new GoogleAuthorizationError();
+    throw error;
+  }
 }
 
 async function google<T>(env: Env, url: string, init: RequestInit): Promise<T> {

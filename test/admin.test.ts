@@ -77,6 +77,19 @@ afterEach(async () => {
 });
 
 describe('panel con D1 real', () => {
+  it('explica la autorización de Google vencida sin bloquear usuarios y solicitudes', async () => {
+    env.GOOGLE_CLIENT_ID = 'expired-client';
+    env.GOOGLE_REFRESH_TOKEN = 'expired-refresh';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, { status: 400 }));
+    const response = await call('tickets');
+    expect(response.status).toBe(424);
+    const data = await response.json() as { error: string; code: string };
+    expect(data.code).toBe('GOOGLE_AUTH_REQUIRED');
+    expect(data.error).toContain('nueva autorización');
+    expect(data.error).not.toContain('expired-refresh');
+    expect((await call('users')).status).toBe(200);
+    expect((await call('requests')).status).toBe(200);
+  });
   it('protege instalación, contraseñas, cookies y origen de los cambios', async () => {
     expect(
       (

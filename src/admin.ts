@@ -12,8 +12,8 @@ import {
   verifyPassword,
   type Account,
 } from './admin-store';
-import { adminHtml, adminJs, adminCss } from './admin-ui';
-import { readTickets, updateTicket, relocateImage, moveToTrash } from './google';
+import { adminHtml, adminJs, adminCss, adminIcon } from './admin-ui';
+import { GoogleAuthorizationError, readTickets, updateTicket, relocateImage, moveToTrash } from './google';
 import { semanticKey, validateTicket } from './ticket';
 
 class ApiError extends Error {
@@ -54,6 +54,8 @@ async function routes(request: Request, env: Env): Promise<Response> {
     return new Response(adminJs, { headers: { 'content-type': 'text/javascript; charset=utf-8' } });
   if (request.method === 'GET' && path === '/admin/style.css')
     return new Response(adminCss, { headers: { 'content-type': 'text/css; charset=utf-8' } });
+  if (request.method === 'GET' && path === '/admin/icon.svg')
+    return new Response(adminIcon, { headers: { 'content-type': 'image/svg+xml' } });
   if (!path.startsWith('/admin/api/')) throw new ApiError(404, 'No encontrado.');
   if (!env.ADMIN_DB)
     throw new ApiError(503, 'El panel aún necesita su base de datos. El bot sigue disponible.');
@@ -422,7 +424,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   try {
     response = await routes(request, env);
   } catch (error) {
-    if (error instanceof ApiError) response = json({ error: error.message }, error.status);
+    if (error instanceof GoogleAuthorizationError) response = json({ error: error.message, code: error.code }, 424);
+    else if (error instanceof ApiError) response = json({ error: error.message }, error.status);
     else if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) response = json({ error: 'Ese usuario o ID de Telegram ya está asignado.' }, 409);
     else if (
       error instanceof Error &&
