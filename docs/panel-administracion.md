@@ -15,9 +15,9 @@ La instalación importa los IDs iniciales de `ALLOWED_CHAT_IDS`; el primero corr
 - **Usuarios:** crea cuentas y asigna el rol Administrador o Usuario. Puedes vincular un ID de Telegram al crearlas. Suspender bloquea el panel y el bot y cierra las sesiones. La cuenta principal está protegida.
 - **Solicitudes:** la persona pulsa Solicitar acceso en Telegram; aquí apruebas o rechazas. Aprobar habilita el bot, pero no crea automáticamente una cuenta del panel. La persona puede volver a pulsar Iniciar tras la aprobación.
 - **Acceso al bot:** concede, revoca o restaura el acceso a Telegram. Para bloquear también el panel, suspende la cuenta en Usuarios.
-- **Tickets:** consulta, filtra, abre imágenes, corrige registros o elimínalos de las consultas normales. Solo el administrador puede usar Borrar definitivamente sobre registros eliminados; esa acción suprime el registro y la imagen del almacenamiento activo.
+- **Tickets:** consulta, filtra, abre imágenes, corrige registros o elimínalos de las consultas normales. Exportar vista CSV descarga los registros de la vista filtrada, respetando los permisos de la cuenta. Solo el administrador puede usar Borrar definitivamente sobre registros eliminados; esa acción suprime el registro y la imagen del almacenamiento activo.
 - **Imágenes del historial anterior:** selecciona los archivos originales exportados para vincularlos a sus tickets. Consulta la [guía de importación](importar-historial.md).
-- **Actividad:** muestra los últimos 100 cambios administrativos. El borrado definitivo conserva una referencia mínima de la acción, sin los datos del ticket.
+- **Actividad:** muestra los últimos 100 cambios registrados desde el panel y las operaciones del bot que generan historial. El borrado definitivo conserva una referencia mínima de la acción, sin los datos del ticket.
 - **Mi cuenta:** cambia tu contraseña y vuelve a iniciar sesión.
 
 Los usuarios normales solo ven sus tickets. Las rutas de imágenes verifican la sesión y la propiedad del registro. No se habilitan enlaces públicos del bucket.

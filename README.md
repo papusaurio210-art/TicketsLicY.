@@ -1,11 +1,51 @@
-# TicketsLicY
+# TicketsLicY · Bot y panel de administración
 
 Bot privado de Telegram para registrar tickets desde una foto. El panel centraliza los registros, las imágenes, las solicitudes y los permisos. El almacenamiento funciona en Cloudflare: **D1** para datos, **R2** para imágenes privadas y **KV** para estado temporal. OpenAI extrae la información de las fotos.
+
+**Versión operativa en producción**, conectada a la rama `main` mediante Cloudflare Workers Builds.
+
+| Acceso | Enlace |
+|---|---|
+| Sitio del proyecto | [TicketsLicY](https://ticketslicy-bot.willicer1313.workers.dev/) |
+| Panel privado | [Entrar al panel](https://ticketslicy-bot.willicer1313.workers.dev/admin) |
+| Bot de Telegram | [@Facturascun_bot](https://t.me/Facturascun_bot) |
+| Privacidad y contacto | [Política de privacidad](https://ticketslicy-bot.willicer1313.workers.dev/privacy) |
+
+El panel requiere una cuenta autorizada. Su acceso usa usuario y contraseña; los permisos del bot se gestionan desde el panel.
+
+## Qué permite hacer
+
+- Registrar una foto de ticket y extraer comercio, fecha, importes y categoría.
+- Confirmar, corregir o cancelar una edición mediante botones en Telegram.
+- Consultar los últimos tickets, buscar registros y revisar los totales del mes.
+- Ver imágenes privadas, filtrar registros y exportar la vista del panel a CSV.
+- Crear usuarios, asignar roles, aprobar solicitudes, suspender cuentas y revocar accesos.
+- Eliminar registros de las consultas y permitir al administrador borrarlos definitivamente.
+- Importar el historial anterior y vincular sus fotos originales desde el panel.
+
+## Documentación
 
 - [Guía rápida de uso (Word)](docs/Guia_rapida_TicketsLicY.docx)
 - [Administración del panel](docs/panel-administracion.md)
 - [Importación del historial](docs/importar-historial.md)
 - [Especificación del proyecto (Word)](docs/Especificacion_TicketsLicY.docx)
+- [Estado, validación y pendientes](docs/estado-proyecto.md)
+
+## Arquitectura actual
+
+```mermaid
+flowchart LR
+    Usuario[Usuario] --> Telegram[Bot de Telegram]
+    Telegram --> Worker[Cloudflare Worker]
+    Usuario --> Panel[Panel privado]
+    Panel --> Worker
+    Worker --> OpenAI[OpenAI: extracción de datos]
+    Worker --> D1[D1: tickets, cuentas y permisos]
+    Worker --> R2[R2: imágenes privadas]
+    Worker --> KV[KV: conversaciones y recuperación]
+```
+
+Las cuentas existentes se conservan en D1. Las imágenes se sirven a través del Worker, que comprueba la sesión y los permisos antes de entregarlas. El almacenamiento actual no requiere una conexión con Google.
 
 ## Usar el bot
 
