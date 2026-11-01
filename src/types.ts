@@ -1,4 +1,5 @@
 export interface Env {
+  PUBLIC_SUPPORT_EMAIL?: string;
   ADMIN_DB?: D1Database;
   ADMIN_SETUP_TOKEN?: string;
   STATE: KVNamespace;

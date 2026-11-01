@@ -11,6 +11,17 @@ Esta preparación requiere acciones del dueño de la cuenta Gmail en Google Clou
 
 Antes de producción, pon la pantalla de consentimiento en estado **En producción**. En modo Testing, los refresh tokens de aplicaciones externas pueden caducar a los siete días. Google puede mostrar una advertencia de aplicación no verificada para este uso personal.
 
+## Página principal y privacidad para Google
+
+La configuración de marca puede exigir páginas públicas antes de permitir publicar. El Worker sirve estas páginas sin inicio de sesión:
+
+- Página principal: `https://ticketslicy-bot.willicer1313.workers.dev/`
+- Política de privacidad: `https://ticketslicy-bot.willicer1313.workers.dev/privacy`
+
+Configura el nombre **TicketsLicY**, el correo de asistencia y el contacto del desarrollador. Usa esos enlaces en los campos de marca correspondientes. El correo público de las páginas se configura con `PUBLIC_SUPPORT_EMAIL` en `wrangler.toml` y debe ser un correo que el responsable haya autorizado publicar.
+
+Si Google exige además verificar un dominio autorizado, será necesario usar un dominio que controle el responsable y alojar allí estas mismas páginas, por ejemplo mediante un dominio personalizado del Worker. Los enlaces públicos no sustituyen esa verificación. No registres `workers.dev` como si fuera un dominio propio: pertenece al proveedor.
+
 ## Restablecer la conexión
 
 Si el panel muestra que Google necesita una nueva autorización, el refresh token venció o fue revocado. La cuenta del panel es independiente y puedes seguir administrando usuarios y accesos.

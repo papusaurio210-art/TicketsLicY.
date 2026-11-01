@@ -4,6 +4,7 @@ import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
 import { categories, semanticKey, validateTicket } from './ticket';
 import { handleAdmin } from './admin';
+import { publicPage } from './public-pages';
 import { hasBotAccess, requestAccess } from './admin-store';
 import { answerCallback, cancelEditButton, cancelSearchButton, downloadPhoto, editButtons, mainMenu, menuLabels, operationButtons, sendMessage, ticketSummary } from './telegram';
 import type { Env, Operation, TelegramUpdate, Ticket } from './types';
@@ -262,6 +263,8 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const publicResponse = publicPage(request, env);
+    if (publicResponse) return publicResponse;
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) return handleAdmin(request, env);
     if (url.pathname === '/health' && request.method === 'GET') return Response.json({ ok: true });
     if (url.pathname !== '/telegram' || request.method !== 'POST') return new Response('Not found', { status: 404 });

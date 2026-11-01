@@ -8,6 +8,7 @@ id = "bf4673dafbdf44ccb0e8d0e05d135ad6"
 
 [vars]
 OPENAI_MODEL = "gpt-5-nano"
+PUBLIC_SUPPORT_EMAIL = "papusaurio210@gmail.com"
 
 [[d1_databases]]
 binding = "ADMIN_DB"
