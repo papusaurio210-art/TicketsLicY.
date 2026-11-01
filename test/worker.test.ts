@@ -15,33 +15,22 @@ function env(): Env {
 }
 
 describe('Worker', () => {
-  it('publica información y privacidad sin consultar datos privados ni exponer secretos', async () => {
+  it('dirige al panel y retira las páginas creadas para la integración anterior', async () => {
     const e = env();
-    e.OPENAI_API_KEY = 'private-token-must-not-appear';
-    e.PUBLIC_SUPPORT_EMAIL = 'support@example.com';
     const ctx = { waitUntil: vi.fn() } as unknown as ExecutionContext;
-    const network = vi.spyOn(globalThis, 'fetch');
-    try {
-      for (const path of ['/', '/privacy']) {
-        const response = await worker.fetch(new Request('https://example.com' + path), e, ctx);
-        expect(response.status).toBe(200);
-        expect(response.headers.get('Content-Type')).toContain('text/html');
-        const html = await response.text();
-        expect(html).toContain('support@example.com');
-        expect(html).not.toContain(e.OPENAI_API_KEY);
-      }
-      expect(network).not.toHaveBeenCalled();
-      expect(ctx.waitUntil).not.toHaveBeenCalled();
-      const head = await worker.fetch(
-        new Request('https://example.com/privacy', { method: 'HEAD' }),
-        e,
-        ctx,
-      );
-      expect(head.status).toBe(200);
-      expect(await head.text()).toBe('');
-    } finally {
-      network.mockRestore();
+    for (const method of ['GET','HEAD']) {
+      const response = await worker.fetch(new Request('https://example.com/',{method}),e,ctx);
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toBe('/admin');
+      expect(await response.text()).toBe('');
     }
+    for (const path of ['/privacy','/public.css']) {
+      expect((await worker.fetch(new Request('https://example.com'+path),e,ctx)).status).toBe(404);
+    }
+    const panel = await worker.fetch(new Request('https://example.com/admin'),e,ctx);
+    expect(panel.status).toBe(200);
+    expect((await panel.text())).toContain('TicketsLicY');
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
   });
   it('responde en health y protege el webhook', async () => {
     const e = env();

@@ -6,10 +6,8 @@ Bot privado de Telegram para registrar tickets desde una foto. El panel centrali
 
 | Acceso | Enlace |
 |---|---|
-| Sitio del proyecto | [TicketsLicY](https://ticketslicy-bot.willicer1313.workers.dev/) |
 | Panel privado | [Entrar al panel](https://ticketslicy-bot.willicer1313.workers.dev/admin) |
 | Bot de Telegram | [@Facturascun_bot](https://t.me/Facturascun_bot) |
-| Privacidad y contacto | [Política de privacidad](https://ticketslicy-bot.willicer1313.workers.dev/privacy) |
 
 El panel requiere una cuenta autorizada. Su acceso usa usuario y contraseña; los permisos del bot se gestionan desde el panel.
 
@@ -71,7 +69,7 @@ Recursos de `wrangler.toml`:
 
 Secretos: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `OPENAI_API_KEY` y `ADMIN_SETUP_TOKEN` solo para la instalación inicial. `ALLOWED_CHAT_IDS` conserva los IDs iniciales para el primer administrador. No subas secretos al repositorio.
 
-Variables públicas: `OPENAI_MODEL`, `PUBLIC_APP_URL` (sin barra final) y `PUBLIC_SUPPORT_EMAIL`. El modelo actual es `gpt-5-nano`; sus precios y precisión deben revisarse con uso real. El límite de gasto de la cuenta de OpenAI se configura en su panel.
+Variables públicas: `OPENAI_MODEL` y `PUBLIC_APP_URL` (sin barra final). El modelo actual es `gpt-5-nano`; sus precios y precisión deben revisarse con uso real. El límite de gasto de la cuenta de OpenAI se configura en su panel.
 
 ## Preparar y desplegar
 
@@ -83,7 +81,7 @@ Variables públicas: `OPENAI_MODEL`, `PUBLIC_APP_URL` (sin barra final) y `PUBLI
 6. En una instalación nueva, abre `/admin`, usa el código local `.admin-setup.txt` (ignorado por Git) y elige tus credenciales. Guarda los códigos de recuperación.
 7. Registra `/telegram` mediante `npm run webhook:register`, con `WORKER_URL`, el token de Telegram y el secreto del webhook configurados en el entorno.
 
-`/` y `/privacy` son páginas públicas informativas. `/health` comprueba que el Worker responde, no hace llamadas a OpenAI ni valida toda la infraestructura.
+La dirección principal `/` redirige al panel `/admin`. `/health` comprueba que el Worker responde, no hace llamadas a OpenAI ni valida toda la infraestructura.
 
 ## Desarrollo y pruebas
 

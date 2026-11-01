@@ -8,7 +8,6 @@ id = "bf4673dafbdf44ccb0e8d0e05d135ad6"
 
 [vars]
 OPENAI_MODEL = "gpt-5-nano"
-PUBLIC_SUPPORT_EMAIL = "papusaurio210@gmail.com"
 PUBLIC_APP_URL = "https://ticketslicy-bot.willicer1313.workers.dev"
 
 [[d1_databases]]

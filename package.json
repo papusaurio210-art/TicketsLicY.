@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Bot privado de Telegram y panel para gestionar tickets, usuarios e imágenes con Cloudflare D1 y R2.",
-  "homepage": "https://ticketslicy-bot.willicer1313.workers.dev/",
+  "homepage": "https://ticketslicy-bot.willicer1313.workers.dev/admin",
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",

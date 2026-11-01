@@ -15,7 +15,6 @@ import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
 import { categories, validateTicket } from './ticket';
 import { handleAdmin } from './admin';
-import { publicPage } from './public-pages';
 import { hasBotAccess, requestAccess } from './admin-store';
 import {
   answerCallback,
@@ -445,8 +444,8 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const publicResponse = publicPage(request, env);
-    if (publicResponse) return publicResponse;
+    if (url.pathname === '/' && ['GET', 'HEAD'].includes(request.method))
+      return new Response(null, { status: 302, headers: { Location: '/admin', 'Cache-Control': 'no-store' } });
     if (url.pathname === '/admin' || url.pathname.startsWith('/admin/'))
       return handleAdmin(request, env);
     if (url.pathname === '/health' && request.method === 'GET') return Response.json({ ok: true });
