@@ -1,5 +1,5 @@
 import { sha256 } from './http';
-import { GoogleAuthorizationError, appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, updateTicket, uploadImage } from './google';
+import { GoogleIntegrationError, recordGoogleStatus, appendTicket, findRowByHash, moveToTrash, readTickets, relocateImage, updateTicket, uploadImage } from './google';
 import { extractTicket } from './openai';
 import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
 import { categories, semanticKey, validateTicket } from './ticket';
@@ -250,10 +250,11 @@ async function processUpdate(env: Env, update: TelegramUpdate): Promise<void> {
       await env.STATE.put(`update:${update.update_id}`, 'text', { expirationTtl: day });
     }
   } catch (error) {
+    if (error instanceof GoogleIntegrationError) await recordGoogleStatus(env, error);
     const code = error instanceof Error ? error.message.match(/^HTTP \d+/)?.[0] ?? error.name : 'unknown';
     console.error('Ticket processing failed', { updateId: update.update_id, code });
     const message = error instanceof PartialSaveError ? error.message
-      : error instanceof GoogleAuthorizationError ? 'Google necesita una nueva autorización. Avisa al administrador del bot.'
+      : error instanceof GoogleIntegrationError ? 'La conexión con Google necesita ser revisada. Avisa al administrador del bot.'
       : error instanceof Error && /^(La imagen supera el límite de 5 MB\.|No pude leer el total con suficiente confianza\.|Fecha inválida$)/.test(error.message) ? error.message
       : 'No pude procesar el ticket. Inténtalo de nuevo más tarde.';
     await sendMessage(env, chatId, message);

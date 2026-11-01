@@ -13,7 +13,7 @@ import {
   type Account,
 } from './admin-store';
 import { adminHtml, adminJs, adminCss, adminIcon } from './admin-ui';
-import { GoogleAuthorizationError, readTickets, updateTicket, relocateImage, moveToTrash } from './google';
+import { GoogleIntegrationError, recordGoogleStatus, readTickets, updateTicket, relocateImage, moveToTrash } from './google';
 import { semanticKey, validateTicket } from './ticket';
 
 class ApiError extends Error {
@@ -424,7 +424,11 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   try {
     response = await routes(request, env);
   } catch (error) {
-    if (error instanceof GoogleAuthorizationError) response = json({ error: error.message, code: error.code }, 424);
+    if (error instanceof GoogleIntegrationError) {
+      await recordGoogleStatus(env, error);
+      console.error('Google integration failed', { code: error.code, stage: error.stage, status: error.upstreamStatus });
+      response = json({ error: error.message, code: error.code, stage: error.stage }, 424);
+    }
     else if (error instanceof ApiError) response = json({ error: error.message }, error.status);
     else if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) response = json({ error: 'Ese usuario o ID de Telegram ya está asignado.' }, 409);
     else if (

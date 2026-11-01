@@ -77,6 +77,40 @@ afterEach(async () => {
 });
 
 describe('panel con D1 real', () => {
+  it.each([
+    { name: 'cliente rechazado', status: 401, response: { error: 'invalid_client', error_description: 'private-upstream-value' }, stage: 'authorization', code: 'GOOGLE_CLIENT_INVALID' },
+    { name: 'permisos insuficientes', status: 403, response: { error: { details: [{ reason: 'ACCESS_TOKEN_SCOPE_INSUFFICIENT' }] } }, stage: 'sheets', code: 'GOOGLE_SCOPE_MISSING' },
+    { name: 'API deshabilitada', status: 403, response: { error: { details: [{ reason: 'SERVICE_DISABLED' }] } }, stage: 'sheets', code: 'GOOGLE_API_DISABLED' },
+    { name: 'cuenta sin acceso', status: 403, response: { error: { status: 'PERMISSION_DENIED' } }, stage: 'sheets', code: 'GOOGLE_PERMISSION_DENIED' },
+    { name: 'hoja no encontrada', status: 404, response: { error: { status: 'NOT_FOUND' } }, stage: 'sheets', code: 'GOOGLE_SHEET_NOT_FOUND' },
+    { name: 'rango inválido', status: 400, response: { error: { status: 'INVALID_ARGUMENT' } }, stage: 'sheets', code: 'GOOGLE_SHEET_INVALID' },
+    { name: 'columnas modificadas', status: 200, response: { values: [['Columna incorrecta']] }, stage: 'sheets', code: 'GOOGLE_SHEET_HEADERS_INVALID' },
+  ])('diagnostica $name sin exponer respuestas privadas', async (scenario) => {
+    env.GOOGLE_CLIENT_ID = ' client-' + scenario.code + ' ';
+    env.GOOGLE_CLIENT_SECRET = ' private-secret ';
+    env.GOOGLE_REFRESH_TOKEN = ' private-refresh ';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (String(input).includes('oauth2')) {
+        const form = new URLSearchParams(String(init?.body));
+        expect(form.get('client_secret')).toBe('private-secret');
+        if (scenario.stage !== 'authorization') return Response.json({ access_token: 'access', expires_in: 3600 });
+      }
+      return Response.json(scenario.response, { status: scenario.status });
+    });
+    const response = await call('tickets');
+    expect(response.status).toBe(424);
+    const data = await response.json() as { code: string; stage: string; error: string };
+    expect(data.code).toBe(scenario.code);
+    expect(data.stage).toBe(scenario.stage);
+    const stored = await env.ADMIN_DB!.prepare("SELECT value FROM settings WHERE key='google_connection_status'").first<{value:string}>();
+    expect(JSON.parse(stored!.value).code).toBe(scenario.code);
+    for (const text of [JSON.stringify(data), stored!.value]) {
+      expect(text).not.toContain('private-secret');
+      expect(text).not.toContain('private-refresh');
+      expect(text).not.toContain('private-upstream-value');
+    }
+  });
   it('explica la autorización de Google vencida sin bloquear usuarios y solicitudes', async () => {
     env.GOOGLE_CLIENT_ID = 'expired-client';
     env.GOOGLE_REFRESH_TOKEN = 'expired-refresh';

@@ -1,36 +1,69 @@
-import { requestJson } from './http';
+import { requestJson, UpstreamHttpError } from './http';
 import type { Env, Operation, Ticket } from './types';
 import { parseTickets, type SheetTicket } from './queries';
 
-export class GoogleAuthorizationError extends Error {
-  readonly code = 'GOOGLE_AUTH_REQUIRED';
-  constructor() {
-    super('La conexión con Google necesita una nueva autorización. El administrador debe restablecerla para consultar los tickets.');
-    this.name = 'GoogleAuthorizationError';
+type GoogleStage = 'authorization' | 'sheets' | 'drive';
+export class GoogleIntegrationError extends Error {
+  constructor(readonly code: string, message: string, readonly stage: GoogleStage, readonly upstreamStatus?: number) {
+    super(message);
+    this.name = 'GoogleIntegrationError';
   }
 }
-
-let tokenCache: { token: string; expires: number; clientId: string; refreshToken: string } | undefined;
-
+export class GoogleAuthorizationError extends GoogleIntegrationError {
+  constructor() {
+    super('GOOGLE_AUTH_REQUIRED', 'La conexión con Google necesita una nueva autorización. El administrador debe restablecerla para consultar los tickets.', 'authorization', 400);
+  }
+}
+function googleFailure(error: unknown, stage: GoogleStage): GoogleIntegrationError {
+  if (error instanceof GoogleIntegrationError) return error;
+  const upstream = error instanceof UpstreamHttpError ? error : undefined;
+  if (stage === 'authorization') {
+    if (upstream?.serviceCode === 'invalid_grant') return new GoogleAuthorizationError();
+    if (['invalid_client', 'unauthorized_client'].includes(upstream?.serviceCode ?? '')) return new GoogleIntegrationError('GOOGLE_CLIENT_INVALID', 'Google rechazó el cliente OAuth. Revisa que GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET del Worker correspondan al mismo cliente con el que generaste el refresh token.', stage, upstream?.status);
+    if (upstream?.serviceCode === 'invalid_scope') return new GoogleIntegrationError('GOOGLE_SCOPE_MISSING', 'La autorización de Google tiene permisos incorrectos. Autoriza Drive y Sheets con el cliente OAuth del bot.', stage, upstream?.status);
+  }
+  if (upstream?.status === 403) {
+    if (['ACCESS_TOKEN_SCOPE_INSUFFICIENT', 'insufficientPermissions'].includes(upstream.reason ?? '')) return new GoogleIntegrationError('GOOGLE_SCOPE_MISSING', 'El token no tiene los permisos necesarios. Vuelve a autorizar Drive y Sheets y actualiza GOOGLE_REFRESH_TOKEN.', stage, 403);
+    if (['SERVICE_DISABLED', 'accessNotConfigured'].includes(upstream.reason ?? '')) return new GoogleIntegrationError('GOOGLE_API_DISABLED', 'La API de Google está deshabilitada. Habilita Google Drive API y Google Sheets API en el proyecto del cliente OAuth.', stage, 403);
+    return new GoogleIntegrationError('GOOGLE_PERMISSION_DENIED', 'La cuenta autorizada no tiene permiso sobre el archivo. Revisa la cuenta de Google y el acceso a la hoja y carpeta configuradas.', stage, 403);
+  }
+  if (stage === 'sheets' && upstream?.status === 404) return new GoogleIntegrationError('GOOGLE_SHEET_NOT_FOUND', 'Google no encuentra la hoja configurada o no permite verla. Revisa GOOGLE_SHEET_ID y la cuenta que autorizaste.', stage, 404);
+  if (stage === 'sheets' && upstream?.status === 400) return new GoogleIntegrationError('GOOGLE_SHEET_INVALID', 'Google no puede leer la hoja configurada. Revisa GOOGLE_SHEET_ID y que exista la pestaña Tickets.', stage, 400);
+  return new GoogleIntegrationError('GOOGLE_UNAVAILABLE', 'No se pudo conectar con Google. Reintenta en unos momentos; el administrador puede revisar el diagnóstico de la conexión.', stage, upstream?.status);
+}
+export async function recordGoogleStatus(env: Env, error: GoogleIntegrationError | null): Promise<void> {
+  if (!env.ADMIN_DB) return;
+  const status = { code: error?.code ?? 'OK', stage: error?.stage ?? 'sheets', upstreamStatus: error ? error.upstreamStatus ?? null : 200, checkedAt: new Date().toISOString() };
+  try {
+    await env.ADMIN_DB.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').bind('google_connection_status', JSON.stringify(status)).run();
+  } catch { console.error('Google diagnostic storage unavailable'); }
+}
+let tokenCache: { token: string; expires: number; clientId: string; clientSecret: string; refreshToken: string } | undefined;
 async function accessToken(env: Env): Promise<string> {
-  if (tokenCache && tokenCache.expires > Date.now() && tokenCache.clientId === env.GOOGLE_CLIENT_ID && tokenCache.refreshToken === env.GOOGLE_REFRESH_TOKEN) return tokenCache.token;
-  const body = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: env.GOOGLE_REFRESH_TOKEN, grant_type: 'refresh_token' });
+  const clientId = env.GOOGLE_CLIENT_ID?.trim(), clientSecret = env.GOOGLE_CLIENT_SECRET?.trim(), refreshToken = env.GOOGLE_REFRESH_TOKEN?.trim();
+  if (!clientId || !clientSecret || !refreshToken) throw new GoogleIntegrationError('GOOGLE_CONFIG_MISSING', 'Falta configurar GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET o GOOGLE_REFRESH_TOKEN en el Worker.', 'authorization');
+  if (tokenCache && tokenCache.expires > Date.now() && tokenCache.clientId === clientId && tokenCache.clientSecret === clientSecret && tokenCache.refreshToken === refreshToken) return tokenCache.token;
   try {
     const data = await requestJson<{ access_token: string; expires_in: number }>('https://oauth2.googleapis.com/token', {
-      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body,
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token' }),
     });
-    tokenCache = { token: data.access_token, expires: Date.now() + Math.min(data.expires_in - 120, 3300) * 1000, clientId: env.GOOGLE_CLIENT_ID, refreshToken: env.GOOGLE_REFRESH_TOKEN };
+    if (!data.access_token || !Number.isFinite(data.expires_in)) throw new Error('Invalid Google token response');
+    tokenCache = { token: data.access_token, expires: Date.now() + Math.min(data.expires_in - 120, 3300) * 1000, clientId, clientSecret, refreshToken };
     return data.access_token;
-  } catch (error) {
-    tokenCache = undefined;
-    if (error instanceof Error && /"error"\s*:\s*"invalid_grant"/.test(error.message)) throw new GoogleAuthorizationError();
-    throw error;
-  }
+  } catch (error) { tokenCache = undefined; throw googleFailure(error, 'authorization'); }
 }
-
 async function google<T>(env: Env, url: string, init: RequestInit): Promise<T> {
-  const token = await accessToken(env);
-  return requestJson<T>(url, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers } }, init.method && init.method !== 'GET' ? 0 : 2);
+  const stage = new URL(url).hostname === 'sheets.googleapis.com' ? 'sheets' : 'drive';
+  try {
+    let token = await accessToken(env);
+    const send = () => requestJson<T>(url, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers } }, init.method && init.method !== 'GET' ? 0 : 2);
+    try { return await send(); } catch (error) {
+      if (!(error instanceof UpstreamHttpError) || error.status !== 401) throw error;
+      tokenCache = undefined; token = await accessToken(env);
+      return await send();
+    }
+  } catch (error) { throw googleFailure(error, stage); }
 }
 
 async function ensureFolder(env: Env, parent: string, name: string): Promise<string> {
@@ -100,8 +133,14 @@ export async function findRowByHash(env: Env, hash: string): Promise<number | nu
 }
 
 export async function readTickets(env: Env): Promise<SheetTicket[]> {
-  const result = await google<{ values?: unknown[][] }>(env, `https://sheets.googleapis.com/v4/spreadsheets/${env.GOOGLE_SHEET_ID}/values/Tickets!A1:R?valueRenderOption=UNFORMATTED_VALUE`, {});
-  return parseTickets(result.values ?? []);
+  const sheetId = env.GOOGLE_SHEET_ID?.trim();
+  if (!sheetId || !/^[a-zA-Z0-9_-]+$/.test(sheetId)) throw new GoogleIntegrationError('GOOGLE_SHEET_INVALID', 'Revisa GOOGLE_SHEET_ID: debe contener solo el ID de la hoja, no el enlace completo.', 'sheets');
+  const result = await google<{ values?: unknown[][] }>(env, `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/Tickets!A1:R?valueRenderOption=UNFORMATTED_VALUE`, {});
+  let tickets: SheetTicket[];
+  try { tickets = parseTickets(result.values ?? []); }
+  catch { throw new GoogleIntegrationError('GOOGLE_SHEET_HEADERS_INVALID', 'La hoja Tickets tiene columnas distintas a las esperadas. El administrador debe revisar sus encabezados; no se modificó el archivo.', 'sheets'); }
+  await recordGoogleStatus(env, null);
+  return tickets;
 }
 
 export async function updateTicket(env: Env, op: Operation): Promise<void> {

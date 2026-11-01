@@ -33,3 +33,21 @@ Si el panel muestra que Google necesita una nueva autorización, el refresh toke
 5. Recarga el panel y pulsa **Reintentar**. No hay que crear otra cuenta del panel, cambiar los IDs de Drive/Sheets ni volver a ejecutar la preparación de carpetas.
 
 Si quieres que este entorno también pueda comprobar la conexión, actualiza su secreto `GOOGLE_REFRESH_TOKEN` por separado: el secreto del Worker y el del entorno son configuraciones distintas.
+
+## Otros diagnósticos de conexión
+
+El panel distingue los siguientes casos sin mostrar claves ni la respuesta privada de Google:
+
+| Diagnóstico | Qué revisar |
+|---|---|
+| `GOOGLE_CLIENT_INVALID` | `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` deben corresponder al mismo cliente OAuth con el que se generó el refresh token. Revisa los valores en el Worker, no solo en el entorno de desarrollo. Si cambiaste de cliente, autoriza de nuevo con ese cliente y la misma cuenta. |
+| `GOOGLE_CONFIG_MISSING` | Falta una de las tres credenciales en el Worker. |
+| `GOOGLE_SCOPE_MISSING` | Vuelve a autorizar los permisos de Drive y Sheets y reemplaza el refresh token. |
+| `GOOGLE_API_DISABLED` | Habilita Drive API y Sheets API en el proyecto del cliente OAuth. |
+| `GOOGLE_PERMISSION_DENIED` | Comprueba que se autorizó la cuenta propietaria y que tiene acceso al archivo configurado. |
+| `GOOGLE_SHEET_NOT_FOUND` | Revisa el ID de la hoja y la cuenta autorizada. |
+| `GOOGLE_SHEET_INVALID` | Usa solo el ID de la hoja, no su URL completa, y comprueba que conserve una pestaña llamada Tickets. |
+| `GOOGLE_SHEET_HEADERS_INVALID` | Las columnas de la hoja difieren del formato esperado; revísalas antes de modificarlas. |
+| `GOOGLE_UNAVAILABLE` | Reintenta más tarde y revisa si Google respondió con un error temporal. |
+
+El último diagnóstico guarda únicamente código, etapa, estado HTTP cuando existe y fecha en `settings.google_connection_status` de D1. No guarda claves, imágenes ni tickets. Una lectura correcta lo actualiza a `OK`.
