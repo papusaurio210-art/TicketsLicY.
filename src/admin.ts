@@ -437,10 +437,13 @@ async function routes(request: Request, env: Env): Promise<Response> {
     });
   }
   if (path === '/admin/api/tickets') {
-    const own = await db
-      .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
-      .bind(user.id)
-      .first<{ chat_id: string }>();
+    const own =
+      user.role === 'admin'
+        ? null
+        : await db
+            .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
+            .bind(user.id)
+            .first<{ chat_id: string }>();
     if (request.method === 'GET')
       return json(
         user.role === 'admin'

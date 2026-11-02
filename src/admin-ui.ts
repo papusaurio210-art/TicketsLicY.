@@ -241,6 +241,29 @@ function show(message) {
   clearTimeout(timer);
   timer = setTimeout(() => notice.classList.remove('visible'), 8000);
 }
+let ticketsCache = null, ticketsFlight = null, ticketsRevision = 0;
+function clearTicketsCache() {
+  ticketsCache = null;
+  ticketsFlight = null;
+  ticketsRevision++;
+}
+function cachedTickets() {
+  return ticketsCache?.userId === me?.id && Date.now() - ticketsCache.loadedAt < 60000
+    ? ticketsCache.data : null;
+}
+function loadTickets() {
+  const userId = me?.id, revision = ticketsRevision;
+  if (ticketsFlight?.userId === userId && ticketsFlight.revision === revision) return ticketsFlight.promise;
+  const flight = { userId, revision };
+  flight.promise = api('tickets').then(data => {
+    if (me?.id === userId && ticketsRevision === revision)
+      ticketsCache = { userId, loadedAt: Date.now(), data };
+    return data;
+  }).finally(() => { if (ticketsFlight === flight) ticketsFlight = null; });
+  ticketsFlight = flight;
+  return flight.promise;
+}
+
 async function api(path, body) {
   const response = await fetch('/admin/api/' + path, {
     method: body === undefined ? 'GET' : 'POST',
@@ -257,6 +280,7 @@ async function api(path, body) {
     error.code = data.code;
     throw error;
   }
+  if (body !== undefined) clearTicketsCache();
   return data;
 }
 function button(text, action, cls = '') {
@@ -401,6 +425,7 @@ function badge(active) {
 }
 async function auth(mode = 'login', status) {
   closeImageViewer();
+  clearTicketsCache();
   root.replaceChildren();
   const outer = node('main', undefined, 'auth');
   document.body.classList.add('auth-view');
@@ -588,7 +613,7 @@ async function render() {
   try {
     await content(main);
   } catch (e) {
-    sectionError(main, e);
+    if (main.isConnected) sectionError(main, e);
   }
 }
 function sectionError(main, error) {
@@ -604,7 +629,7 @@ function sectionError(main, error) {
   c.append(actions);
   main.append(c);
 }
-async function historyImages(main) {
+async function historyImages(main, onImported) {
   const state = await api('storage');
   if (!state.imagesPending && !state.warnings) return;
   const c = card('Imágenes del historial anterior');
@@ -647,6 +672,7 @@ async function historyImages(main) {
         });
         const data = await response.json();
         if (!response.ok) throw Error(data.error || 'No se pudo importar');
+        clearTicketsCache();
         imported += data.imported;
       } catch (e) {
         failed.push(file.name + ': ' + e.message);
@@ -662,7 +688,8 @@ async function historyImages(main) {
     );
     c.append(result);
     input.value = '';
-    show('Importación terminada. Cambia de sección para actualizar la lista.');
+    show('Importación terminada.');
+    if (imported) await onImported?.();
   });
   c.append(f);
   main.append(c);
@@ -670,7 +697,7 @@ async function historyImages(main) {
 async function content(main) {
   if (tab === 'overview') {
     const results = await Promise.allSettled([
-      api('tickets'),
+      loadTickets(),
       me.role === 'admin' ? api('requests') : Promise.resolve(null),
     ]);
     if (!me) return;
@@ -906,15 +933,30 @@ async function content(main) {
     main.append(c);
   }
   if (tab === 'tickets') {
-    const tickets = await api('tickets');
-    if (me.role === 'admin') await historyImages(main);
+    const userId = me.id;
+    let tickets = cachedTickets();
+    const history = node('div');
+    main.append(history);
+    if (me.role === 'admin') {
+      const checkHistory = async () => {
+        history.replaceChildren();
+        try { await historyImages(history, () => refresh()); }
+        catch (error) {
+          if (!main.isConnected || me?.id !== userId) return;
+          const warning = card('No se pudo comprobar el historial de imágenes');
+          warning.classList.add('warning');
+          warning.append(node('p', error.message), button('Reintentar', checkHistory, 'secondary'));
+          history.replaceChildren(warning);
+        }
+      };
+      void checkHistory();
+    }
     const filter = node('input');
     filter.placeholder = 'Buscar por comercio, fecha, categoría o usuario';
     filter.setAttribute('aria-label', 'Filtrar tickets');
     const area = node('div'),
       toolbar = node('div', undefined, 'ticket-toolbar');
-    toolbar.append(
-      button(
+    const exportButton = button(
         'Exportar vista CSV',
         () => {
           const q = filter.value.toLowerCase();
@@ -953,10 +995,11 @@ async function content(main) {
           setTimeout(() => URL.revokeObjectURL(a.href), 1000);
         },
         'secondary',
-      ),
-      filter,
-    );
-    main.append(toolbar, area);
+      );
+    toolbar.append(exportButton, filter);
+    const updateStatus = node('p', undefined, 'muted');
+    updateStatus.setAttribute('role', 'status');
+    main.append(toolbar, updateStatus, area);
     const draw = () => {
       const q = filter.value.toLowerCase();
       area.replaceChildren(
@@ -1024,7 +1067,34 @@ async function content(main) {
       );
     };
     filter.oninput = draw;
-    draw();
+    exportButton.disabled = !tickets;
+    filter.disabled = !tickets;
+    if (tickets) draw();
+    const refresh = async () => {
+      const revision = ticketsRevision;
+      updateStatus.replaceChildren(document.createTextNode(tickets ? 'Actualizando tickets…' : 'Cargando tickets…'));
+      try {
+        const fresh = await loadTickets();
+        if (!main.isConnected || me?.id !== userId || ticketsRevision !== revision) return;
+        tickets = fresh;
+        exportButton.disabled = false;
+        filter.disabled = false;
+        updateStatus.replaceChildren();
+        draw();
+      } catch (error) {
+        if (!main.isConnected || me?.id !== userId || ticketsRevision !== revision) return;
+        if (!tickets) {
+          updateStatus.replaceChildren();
+          sectionError(area, error);
+        } else {
+          updateStatus.replaceChildren(
+            document.createTextNode('No se pudo actualizar. Se muestran los datos de la última carga. '),
+            button('Reintentar', refresh, 'secondary'),
+          );
+        }
+      }
+    };
+    void refresh();
   }
 }
 function editTicket(main, t) {
