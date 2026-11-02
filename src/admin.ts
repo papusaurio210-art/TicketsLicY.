@@ -1,4 +1,5 @@
 import type { Env, Operation, Ticket } from './types';
+import { adminFont } from './admin-font';
 import {
   audit,
   credentials,
@@ -63,6 +64,8 @@ async function routes(request: Request, env: Env): Promise<Response> {
     return new Response(adminJs, { headers: { 'content-type': 'text/javascript; charset=utf-8' } });
   if (request.method === 'GET' && path === '/admin/style.css')
     return new Response(adminCss, { headers: { 'content-type': 'text/css; charset=utf-8' } });
+  if (request.method === 'GET' && path === '/admin/font.woff2')
+    return new Response(adminFont, { headers: { 'content-type': 'font/woff2' } });
   if (request.method === 'GET' && path === '/admin/icon.svg')
     return new Response(adminIcon, { headers: { 'content-type': 'image/svg+xml' } });
   if (!path.startsWith('/admin/api/')) throw new ApiError(404, 'No encontrado.');
@@ -505,7 +508,7 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   response.headers.set('Cache-Control', 'no-store');
   response.headers.set(
     'Content-Security-Policy',
-    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   );
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'no-referrer');
