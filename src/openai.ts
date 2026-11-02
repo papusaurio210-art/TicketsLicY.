@@ -20,7 +20,7 @@ export async function extractTicket(env: Env, bytes: ArrayBuffer, mime: string):
       ] }],
       text: { format: { type: 'json_schema', name: 'ticket', strict: true, schema: ticketSchema } },
     }),
-  }, 1);
+  }, 1, { timeoutMs: 20000, totalMs: 25000 });
   const text = response.output?.flatMap(item => item.content ?? []).find(item => item.type === 'output_text')?.text;
   if (!text) throw new Error('OpenAI no devolvió datos del ticket');
   return validateTicket(JSON.parse(text));

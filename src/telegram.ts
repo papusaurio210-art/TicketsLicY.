@@ -27,7 +27,7 @@ export async function answerCallback(env: Env, id: string, text: string): Promis
 export async function downloadPhoto(env: Env, fileId: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
   const file = await callTelegram<{ file_path: string; file_size?: number }>(env, 'getFile', { file_id: fileId });
   if (file.file_size && file.file_size > 5_000_000) throw new Error('La imagen supera el límite de 5 MB.');
-  const response = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`);
+  const response = await fetch(`https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(10000) });
   if (!response.ok) throw new Error(`Telegram file HTTP ${response.status}`);
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength > 5_000_000) throw new Error('La imagen supera el límite de 5 MB.');

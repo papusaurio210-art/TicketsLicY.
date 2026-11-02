@@ -14,7 +14,11 @@ export async function fixture() {
     }),
   );
   const db = await mf.getD1Database('ADMIN_DB');
-  for (const path of ['migrations/0001_admin.sql', 'migrations/0002_tickets.sql']) {
+  for (const path of [
+    'migrations/0001_admin.sql',
+    'migrations/0002_tickets.sql',
+    'migrations/0003_query_indexes.sql',
+  ]) {
     const sql = readFileSync(path, 'utf8'),
       at = sql.indexOf('CREATE TRIGGER');
     for (const part of (at < 0 ? sql : sql.slice(0, at)).split(';').filter((x) => x.trim()))

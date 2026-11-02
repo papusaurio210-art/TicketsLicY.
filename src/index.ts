@@ -4,7 +4,9 @@ import {
   dailyCount,
   findDuplicate,
   getOperation,
-  readTickets,
+  recentTickets,
+  ticketPage,
+  ticketStats,
   restoreImage,
   saveNewTicket,
   storeImage,
@@ -12,7 +14,7 @@ import {
   updateTicket,
 } from './storage';
 import { extractTicket } from './openai';
-import { monthTotals, searchTickets, ticketLine, visibleTickets } from './queries';
+import { ticketLine } from './queries';
 import { categories, validateTicket } from './ticket';
 import { handleAdmin } from './admin';
 import { hasBotAccess, requestAccess } from './admin-store';
@@ -96,8 +98,9 @@ async function handlePhoto(
   fileId: string,
   updateId: number,
 ): Promise<void> {
-  if (await updateCompleted(env, updateId)) return;
-  if ((await dailyCount(env, chatId)) >= 30)
+  const [completed, count] = await Promise.all([updateCompleted(env, updateId), dailyCount(env, chatId)]);
+  if (completed) return;
+  if (count >= 30)
     throw new StorageError('DAILY_LIMIT', 'Alcanzaste el límite diario de 30 tickets.', 429);
   const { bytes, mime } = await downloadPhoto(env, fileId),
     hash = await sha256(bytes);
@@ -163,31 +166,30 @@ async function handleQuery(
     await sendMessage(env, chatId, 'Escribe el mes como AAAA-MM.');
     return;
   }
-  const tickets = visibleTickets(await readTickets(env, chatId), chatId, undefined);
   if (command === 'recent') {
     await sendMessage(
       env,
       chatId,
-      tickets.slice(0, 5).map(ticketLine).join('\n') || 'No hay tickets registrados.',
+      (await recentTickets(env, chatId)).map(ticketLine).join('\n') || 'No hay tickets registrados.',
     );
   } else if (command === 'search') {
-    const matches = searchTickets(tickets, argument);
+    const { items: matches, total } = await ticketPage(env, { chatId, userId: chatId, q: argument, mode: 'bot' }, 1, 5);
     await sendMessage(
       env,
       chatId,
       matches.length
-        ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${Math.min(matches.length, 5)} de ${matches.length}.`
+        ? `${matches.slice(0, 5).map(ticketLine).join('\n')}\nMostrando ${matches.length} de ${total}.`
         : 'No encontré tickets que coincidan.',
     );
   } else {
     const month = argument || new Date().toISOString().slice(0, 7);
-    const totals = monthTotals(tickets, month);
+    const { totals } = await ticketStats(env, { chatId, userId: chatId, month });
     await sendMessage(
       env,
       chatId,
-      totals.size
-        ? [...totals]
-            .map(([currency, total]) => `${month}: ${total.toFixed(2)} ${currency}`)
+      totals.length
+        ? totals
+            .map(({currency, total}) => `${month}: ${total.toFixed(2)} ${currency}`)
             .join('\n')
         : `No hay tickets para ${month}.`,
     );

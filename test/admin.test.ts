@@ -122,6 +122,27 @@ describe('panel con D1 real', () => {
       userId: number;
     }[];
     expect(tickets.map((x) => x.userId)).toEqual([456]);
+    const paged = (await (await call('tickets?page=1', undefined, session)).json()) as {
+      items: { userId: number }[];
+      total: number;
+    };
+    expect(paged.total).toBe(1);
+    expect(paged.items.map((t) => t.userId)).toEqual([456]);
+    const stats = (await (await call('summary', undefined, session)).json()) as {
+      count: number;
+      pendingRequests: null;
+    };
+    expect(stats.count).toBe(1);
+    expect(stats.pendingRequests).toBeNull();
+    const csv = await (await call('tickets/export', undefined, session)).text();
+    expect(csv).toContain(second.id);
+    expect(csv).not.toContain(first.id);
+    expect((await call('tickets?page=0', undefined, session)).status).toBe(400);
+    expect((await call('tickets?page=1&q=' + 'x'.repeat(201), undefined, session)).status).toBe(
+      400,
+    );
+    for (const route of ['summary', 'tickets?page=1', 'tickets/export'])
+      expect((await call(route, undefined, '')).status).toBe(401);
 
     expect((await call('tickets', { id: first.id, action: 'delete' }, session)).status).toBe(403);
     const users = (await (await call('users')).json()) as { id: string; username: string }[];
@@ -187,6 +208,34 @@ describe('panel con D1 real', () => {
       env,
     );
     expect(response.status).toBe(403);
+  });
+  it('devuelve listas, resumen y CSV vacíos para una cuenta sin Telegram vinculado', async () => {
+    const op = sampleOperation(123);
+    await storeImage(env, op, png);
+    await saveNewTicket(env, op, 9001);
+    await call('users', {username:'unlinked',password:'unlinked-password-123',role:'user'});
+    const session = await login('unlinked','unlinked-password-123');
+    const page = await (await call('tickets?page=1',undefined,session)).json() as {items:unknown[];total:number};
+    expect(page.items).toEqual([]); expect(page.total).toBe(0);
+    const summary = await (await call('summary',undefined,session)).json() as {count:number};
+    expect(summary.count).toBe(0);
+    expect(await (await call('tickets/export',undefined,session)).text()).not.toContain(op.id);
+  });
+  it('versiona y almacena únicamente archivos estáticos, manteniendo privados HTML y API', async () => {
+    const html = await handleAdmin(new Request(origin + '/admin'), env);
+    expect(html.headers.get('cache-control')).toBe('no-store');
+    const markup = await html.text(),
+      version = markup.match(/style\.css\?v=([a-f0-9]+)/)![1];
+    for (const path of ['app.js', 'style.css', 'font.woff2', 'icon.svg']) {
+      const asset = await handleAdmin(
+        new Request(origin + '/admin/' + path + '?v=' + version),
+        env,
+      );
+      expect(asset.headers.get('cache-control')).toContain('immutable');
+      expect(asset.status).toBe(200);
+    }
+    expect((await call('summary')).headers.get('cache-control')).toBe('no-store');
+    expect((await call('summary')).headers.get('server-timing')).toMatch(/app;dur=/);
   });
   it('limita intentos de inicio de sesión', async () => {
     let result: Response;

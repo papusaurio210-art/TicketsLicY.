@@ -22,6 +22,9 @@ import {
   purgeTicket,
   readImage,
   readTickets,
+  ticketPage,
+  ticketStats,
+  ticketCsv,
   updateTicket,
 } from './storage';
 import { validateTicket } from './ticket';
@@ -55,15 +58,41 @@ function admin(user: Account) {
   if (user.role !== 'admin') throw new ApiError(403, 'Solo el administrador puede hacer esto.');
 }
 
+let assetVersion: Promise<string> | undefined;
+function getAssetVersion(): Promise<string> {
+  return (assetVersion ??= digest(
+    adminJs +
+      adminCss +
+      adminIcon +
+      Array.from(new Uint8Array(adminFont), (byte) => String.fromCharCode(byte)).join(''),
+  ));
+}
+async function ticketScope(db: D1Database, user: Account): Promise<number | undefined | null> {
+  if (user.role === 'admin') return undefined;
+  const own = await db
+    .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
+    .bind(user.id)
+    .first<{ chat_id: string }>();
+  return own ? Number(own.chat_id) : null;
+}
+function searchQuery(url: URL): string {
+  const q = (url.searchParams.get('q') ?? '').trim();
+  if (q.length > 200) throw new ApiError(400, 'La búsqueda admite hasta 200 caracteres.');
+  return q;
+}
 async function routes(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url),
     path = url.pathname;
   if (request.method === 'GET' && (path === '/admin' || path === '/admin/'))
-    return new Response(adminHtml, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    return new Response(adminHtml.replaceAll('__ASSET_VERSION__', await getAssetVersion()), {
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
   if (request.method === 'GET' && path === '/admin/app.js')
     return new Response(adminJs, { headers: { 'content-type': 'text/javascript; charset=utf-8' } });
   if (request.method === 'GET' && path === '/admin/style.css')
-    return new Response(adminCss, { headers: { 'content-type': 'text/css; charset=utf-8' } });
+    return new Response(adminCss.replaceAll('__ASSET_VERSION__', await getAssetVersion()), {
+      headers: { 'content-type': 'text/css; charset=utf-8' },
+    });
   if (request.method === 'GET' && path === '/admin/font.woff2')
     return new Response(adminFont, { headers: { 'content-type': 'font/woff2' } });
   if (request.method === 'GET' && path === '/admin/icon.svg')
@@ -436,6 +465,25 @@ async function routes(request: Request, env: Env): Promise<Response> {
       },
     });
   }
+  if (path === '/admin/api/summary' && request.method === 'GET') {
+    const chatId = await ticketScope(db, user);
+    return json(
+      chatId === null
+        ? { count: 0, totals: [], pendingRequests: null }
+        : await ticketStats(env, { chatId }, user.role === 'admin'),
+    );
+  }
+  if (path === '/admin/api/tickets/export' && request.method === 'GET') {
+    const chatId = await ticketScope(db, user),
+      q = searchQuery(url);
+    const stream = await ticketCsv(env, { chatId: chatId === null ? -1 : chatId, q });
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="tickets.csv"',
+      },
+    });
+  }
   if (path === '/admin/api/tickets') {
     const own =
       user.role === 'admin'
@@ -444,14 +492,22 @@ async function routes(request: Request, env: Env): Promise<Response> {
             .prepare('SELECT chat_id FROM bot_access WHERE user_id=?')
             .bind(user.id)
             .first<{ chat_id: string }>();
-    if (request.method === 'GET')
-      return json(
-        user.role === 'admin'
-          ? await readTickets(env)
-          : own
-            ? await readTickets(env, Number(own.chat_id))
-            : [],
-      );
+    if (request.method === 'GET') {
+      const chatId = user.role === 'admin' ? undefined : own ? Number(own.chat_id) : null;
+      if (url.searchParams.has('page')) {
+        const raw = url.searchParams.get('page')!,
+          q = searchQuery(url);
+        if (!/^[1-9]\d{0,6}$/.test(raw)) throw new ApiError(400, 'Página inválida.');
+        const page = Number(raw);
+        return json(
+          chatId === null
+            ? { items: [], total: 0, page, pageSize: 25 }
+            : await ticketPage(env, { chatId, q }, page),
+        );
+      }
+      // Compatibility for existing clients; the panel uses bounded pages.
+      return json(chatId === null ? [] : await readTickets(env, chatId));
+    }
     const id = typeof body.id === 'string' ? body.id : '';
     const op = await getOperation(env, id);
     if (!op) throw new ApiError(404, 'Ticket no disponible.');
@@ -484,6 +540,7 @@ async function routes(request: Request, env: Env): Promise<Response> {
 }
 
 export async function handleAdmin(request: Request, env: Env): Promise<Response> {
+  const started = performance.now();
   let response: Response;
   try {
     response = await routes(request, env);
@@ -508,7 +565,20 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
       );
     }
   }
-  response.headers.set('Cache-Control', 'no-store');
+  const url = new URL(request.url);
+  const staticAsset = [
+    '/admin/app.js',
+    '/admin/style.css',
+    '/admin/font.woff2',
+    '/admin/icon.svg',
+  ].includes(url.pathname);
+  const versioned =
+    staticAsset && response.ok && url.searchParams.get('v') === (await getAssetVersion());
+  response.headers.set(
+    'Cache-Control',
+    versioned ? 'public, max-age=31536000, immutable' : 'no-store',
+  );
+  response.headers.set('Server-Timing', 'app;dur=' + (performance.now() - started).toFixed(1));
   response.headers.set(
     'Content-Security-Policy',
     "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",

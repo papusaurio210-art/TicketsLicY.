@@ -155,15 +155,29 @@ export async function importLegacyBatch(
   await db.batch(statements);
   return next;
 }
+const migrationReady = new WeakMap<D1Database, Promise<void>>();
 async function ready(env: Env): Promise<void> {
-  const result = await importLegacyBatch(env);
-  if (!result.done)
-    throw new StorageError(
-      'HISTORY_IMPORT_PENDING',
-      'Estamos recuperando el historial anterior. Pulsa Reintentar para continuar.',
-      503,
-    );
+  const db = database(env);
+  let pending = migrationReady.get(db);
+  if (!pending) {
+    pending = importLegacyBatch(env)
+      .then((result) => {
+        if (!result.done)
+          throw new StorageError(
+            'HISTORY_IMPORT_PENDING',
+            'Estamos recuperando el historial anterior. Pulsa Reintentar para continuar.',
+            503,
+          );
+      })
+      .catch((error) => {
+        migrationReady.delete(db);
+        throw error;
+      });
+    migrationReady.set(db, pending);
+  }
+  await pending;
 }
+
 export async function getOperation(env: Env, id: string): Promise<Operation | null> {
   await ready(env);
   const row = await database(env).prepare('SELECT * FROM tickets WHERE id=?').bind(id).first<Row>();
@@ -185,10 +199,15 @@ export async function findDuplicate(
     .first<Row>();
   if (row) return operation(row);
   if (fingerprint) {
-    const legacy = await database(env).prepare("SELECT * FROM tickets WHERE chat_id=? AND origin='legacy' AND fingerprint IS NULL AND status!='Eliminado'").bind(String(chatId)).all<Row>();
+    const legacy = await database(env)
+      .prepare(
+        "SELECT * FROM tickets WHERE chat_id=? AND origin='legacy' AND fingerprint IS NULL AND status!='Eliminado'",
+      )
+      .bind(String(chatId))
+      .all<Row>();
     for (const candidate of legacy.results) {
       const op = operation(candidate);
-      if (await semanticKey(op.ticket) === fingerprint) return op;
+      if ((await semanticKey(op.ticket)) === fingerprint) return op;
     }
   }
   return null;
@@ -334,24 +353,26 @@ export async function readTickets(env: Env, chatId?: number): Promise<TicketReco
     )
     .bind(...(chatId !== undefined ? [String(chatId)] : []))
     .all<Row>();
-  return result.results.map((row) => {
-    const t = JSON.parse(row.data) as Ticket;
-    return {
-      fecha: t.fecha,
-      comercio: t.comercio,
-      folio: t.folio ?? '',
-      moneda: t.moneda,
-      total: t.total ?? 0,
-      categoria: t.categoria,
-      estado: row.status,
-      userId: Number(row.user_id),
-      operationId: row.id,
-      createdAt: row.created_at,
-      imageAvailable: !!row.image_key,
-      origin: row.origin,
-    };
-  });
+  return result.results.map(ticketRecord);
 }
+function ticketRecord(row: Row): TicketRecord {
+  const t = JSON.parse(row.data) as Ticket;
+  return {
+    fecha: t.fecha,
+    comercio: t.comercio,
+    folio: t.folio ?? '',
+    moneda: t.moneda,
+    total: t.total ?? 0,
+    categoria: t.categoria,
+    estado: row.status,
+    userId: Number(row.user_id),
+    operationId: row.id,
+    createdAt: row.created_at,
+    imageAvailable: !!row.image_key,
+    origin: row.origin,
+  };
+}
+
 export async function readImage(env: Env, op: Operation): Promise<R2ObjectBody | null> {
   return op.imageKey ? bucket(env).get(op.imageKey) : null;
 }
@@ -413,4 +434,195 @@ export async function importImage(env: Env, bytes: ArrayBuffer): Promise<number>
       .run();
   }
   return rows.length;
+}
+export interface TicketQuery {
+  chatId?: number;
+  userId?: number;
+  q?: string;
+  mode?: 'panel' | 'bot';
+  month?: string;
+  activeOnly?: boolean;
+}
+const ticketOrder = 'created_at DESC,legacy_order DESC,id DESC';
+function normalize(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+function normalizedSql(expression: string): string {
+  let sql = expression;
+  for (const [letters, plain] of [
+    ['áÁ', 'a'],
+    ['éÉ', 'e'],
+    ['íÍ', 'i'],
+    ['óÓ', 'o'],
+    ['úÚüÜ', 'u'],
+    ['ñÑ', 'n'],
+  ])
+    for (const letter of letters) sql = `replace(${sql},'${letter}','${plain}')`;
+  return `lower(${sql})`;
+}
+function ticketWhere(options: TicketQuery) {
+  const clauses: string[] = [],
+    values: (string | number)[] = [];
+  if (options.chatId !== undefined) {
+    clauses.push('chat_id=?');
+    values.push(String(options.chatId));
+  }
+  if (options.userId !== undefined) {
+    clauses.push('user_id=?');
+    values.push(String(options.userId));
+  }
+  if (options.activeOnly || options.chatId !== undefined) clauses.push("status!='Eliminado'");
+  const q = normalize((options.q ?? '').trim());
+  const month =
+    options.month || (options.mode === 'bot' && /^\d{4}-(0[1-9]|1[0-2])$/.test(q) ? q : '');
+  if (month) {
+    const [year, number] = month.split('-').map(Number);
+    const next =
+      number === 12 ? `${year + 1}-01-01` : `${year}-${String(number + 1).padStart(2, '0')}-01`;
+    clauses.push("json_extract(data,'$.fecha')>=? AND json_extract(data,'$.fecha')<?");
+    values.push(month + '-01', next);
+  }
+  if (q && !(options.mode === 'bot' && month === q)) {
+    const fields =
+      options.mode === 'bot'
+        ? ['comercio', 'folio', 'categoria']
+        : ['comercio', 'fecha', 'categoria'];
+    const searches = fields.map(
+      (field) => `instr(${normalizedSql(`coalesce(json_extract(data,'$.${field}'),'')`)},?)>0`,
+    );
+    fields.forEach(() => values.push(q));
+    if (options.mode !== 'bot') {
+      searches.push('instr(user_id,?)>0');
+      values.push(q);
+    }
+    clauses.push('(' + searches.join(' OR ') + ')');
+  }
+  return { sql: clauses.length ? ' WHERE ' + clauses.join(' AND ') : '', values };
+}
+export async function ticketPage(env: Env, options: TicketQuery, page = 1, pageSize = 25) {
+  await ready(env);
+  const where = ticketWhere(options),
+    db = database(env);
+  const [count, rows] = await db.batch([
+    db.prepare('SELECT count(*) AS total FROM tickets' + where.sql).bind(...where.values),
+    db
+      .prepare(
+        'SELECT * FROM tickets' + where.sql + ' ORDER BY ' + ticketOrder + ' LIMIT ? OFFSET ?',
+      )
+      .bind(...where.values, pageSize, (page - 1) * pageSize),
+  ]);
+  return {
+    items: (rows.results as unknown as Row[]).map(ticketRecord),
+    total: Number((count.results[0] as { total: number }).total),
+    page,
+    pageSize,
+  };
+}
+export async function recentTickets(env: Env, chatId: number): Promise<TicketRecord[]> {
+  await ready(env);
+  const where = ticketWhere({ chatId, userId: chatId });
+  const rows = await database(env)
+    .prepare('SELECT * FROM tickets' + where.sql + ' ORDER BY ' + ticketOrder + ' LIMIT 5')
+    .bind(...where.values)
+    .all<Row>();
+  return rows.results.map(ticketRecord);
+}
+export async function ticketStats(env: Env, options: TicketQuery, includeRequests = false) {
+  await ready(env);
+  const where = ticketWhere({ ...options, activeOnly: true }),
+    db = database(env);
+  const statements = [
+    db
+      .prepare(
+        "SELECT json_extract(data,'$.moneda') AS currency,count(*) AS count,sum(coalesce(json_extract(data,'$.total'),0)) AS total FROM tickets" +
+          where.sql +
+          " GROUP BY json_extract(data,'$.moneda')",
+      )
+      .bind(...where.values),
+  ];
+  if (includeRequests)
+    statements.push(
+      db.prepare("SELECT count(*) AS count FROM access_requests WHERE status='pending'"),
+    );
+  const results = await db.batch(statements);
+  const totals = results[0].results as unknown as {
+    currency: string;
+    count: number;
+    total: number;
+  }[];
+  return {
+    count: totals.reduce((sum, row) => sum + row.count, 0),
+    totals: totals.map(({ currency, total }) => ({ currency, total })),
+    pendingRequests: includeRequests
+      ? Number((results[1].results[0] as { count: number }).count)
+      : null,
+  };
+}
+export async function ticketCsv(
+  env: Env,
+  options: TicketQuery,
+): Promise<ReadableStream<Uint8Array>> {
+  await ready(env);
+  const where = ticketWhere(options),
+    encoder = new TextEncoder();
+  const cell = (value: unknown) =>
+    '"' +
+    String(value ?? '')
+      .replace(/^[=+@\s-]/, (x) => "'" + x)
+      .replaceAll('"', '""') +
+    '"';
+  const line = (values: unknown[]) => encoder.encode(values.map(cell).join(',') + '\r\n');
+  async function* chunks() {
+    yield encoder.encode('\ufeff');
+    yield line(['Fecha', 'Comercio', 'Total', 'Moneda', 'Categoría', 'Usuario', 'Estado', 'ID']);
+    let cursor: Row | undefined;
+    while (true) {
+      const seek = cursor
+        ? (where.sql ? ' AND ' : ' WHERE ') + '(created_at,legacy_order,id)<(?,?,?)'
+        : '';
+      const rows = await database(env)
+        .prepare(
+          'SELECT * FROM tickets' + where.sql + seek + ' ORDER BY ' + ticketOrder + ' LIMIT 200',
+        )
+        .bind(
+          ...where.values,
+          ...(cursor ? [cursor.created_at, cursor.legacy_order, cursor.id] : []),
+        )
+        .all<Row>();
+      if (!rows.results.length) return;
+      for (const row of rows.results) {
+        const t = ticketRecord(row);
+        yield line([
+          t.fecha,
+          t.comercio,
+          t.total,
+          t.moneda,
+          t.categoria,
+          t.userId,
+          t.estado,
+          t.operationId,
+        ]);
+      }
+      cursor = rows.results.at(-1);
+      if (rows.results.length < 200) return;
+    }
+  }
+  const iterator = chunks();
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const next = await iterator.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+    async cancel() {
+      await iterator.return(undefined);
+    },
+  });
 }

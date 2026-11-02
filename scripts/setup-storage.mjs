@@ -35,9 +35,11 @@ const binding = config
   .find((part) => part.includes('binding = "ADMIN_DB"'));
 const databaseId = binding?.match(/database_id\s*=\s*"([^"]+)"/)?.[1];
 if (!databaseId) throw Error('Falta configurar ADMIN_DB en wrangler.toml.');
-await api(`/d1/database/${databaseId}/query`, {
-  sql: await readFile(new URL('../migrations/0002_tickets.sql', import.meta.url), 'utf8'),
-});
+for (const migration of ['0002_tickets.sql', '0003_query_indexes.sql']) {
+  await api(`/d1/database/${databaseId}/query`, {
+    sql: await readFile(new URL('../migrations/' + migration, import.meta.url), 'utf8'),
+  });
+}
 console.log('Almacenamiento privado R2 preparado:', name);
 console.log(
   'Publica el código junto con wrangler.toml para usar D1 y R2. El historial de KV se recupera automáticamente al abrir los tickets.',

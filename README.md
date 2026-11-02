@@ -75,7 +75,7 @@ Variables públicas: `OPENAI_MODEL` y `PUBLIC_APP_URL` (sin barra final). El mod
 
 1. Ejecuta `npm ci` con Node.js 20 o superior.
 2. Para una instalación nueva, configura el acceso de Cloudflare en el entorno y ejecuta `npm run bootstrap:admin`. El token necesita D1 Edit, Workers Scripts Edit y Account Settings Read.
-3. Añade Workers R2 Storage Edit al token para preparar imágenes. Ejecuta `npm run bootstrap:storage`: crea o reutiliza `ticketslicy-images`, desactiva su acceso público y aplica `migrations/0002_tickets.sql` a la base configurada.
+3. Añade Workers R2 Storage Edit al token para preparar imágenes. Ejecuta `npm run bootstrap:storage`: crea o reutiliza `ticketslicy-images`, desactiva su acceso público y aplica `migrations/0002_tickets.sql` y `migrations/0003_query_indexes.sql` a la base configurada.
 4. Ejecuta `npm run typecheck`, `npm test` y `npx wrangler deploy --dry-run`.
 5. Sube el commit a `main`. Workers Builds usa `npm ci` y `npx wrangler deploy`. Conserva su token independiente y confirma que el build termine correctamente. Los cambios de esquema requieren aplicar la migración correspondiente antes de publicar el código que la usa.
 6. En una instalación nueva, abre `/admin`, usa el código local `.admin-setup.txt` (ignorado por Git) y elige tus credenciales. Guarda los códigos de recuperación.
@@ -96,3 +96,14 @@ Al consultar tickets se recuperan automáticamente los registros `op:` de KV, en
 ## Límites de operación
 
 La escritura de una imagen en R2 y el registro en D1 no forman una única transacción. El bot conserva temporalmente la operación para reintentar sin repetir la extracción cuando falla D1. Una interrupción justo antes de guardar ese estado puede requerir repetir el procesamiento. Una revocación bloquea las siguientes interacciones, pero una operación ya iniciada puede terminar. Las copias de seguridad y la política de retención deben definirse según el uso del responsable.
+
+### Rendimiento del panel y consultas
+
+- El resumen obtiene conteos y totales por moneda directamente de D1.
+- Tickets carga 25 registros por página. La búsqueda se realiza en D1 tras una pausa de 300 ms al escribir. El CSV incluye **todos los resultados del filtro**, no solo la página visible.
+- El navegador conserva hasta ocho páginas durante 60 segundos, en memoria y por sesión. Los cambios invalidan esa caché y cerrar sesión la elimina.
+- Solo los archivos visuales con una versión calculada a partir de su contenido tienen caché pública. El HTML, las API y las imágenes privadas conservan `Cache-Control: no-store`.
+- Las respuestas del panel incluyen `Server-Timing` para medir el trabajo del servidor. Las solicitudes externas tienen límites de tiempo y respetan `Retry-After` cuando hay reintentos.
+- Para actualizar una instalación existente, aplica `migrations/0003_query_indexes.sql` a D1 antes de publicar. Solo crea índices; conserva registros e imágenes.
+
+Medición local del 2 de noviembre de 2026 con 63 tickets sintéticos: la lista completa transfería 16.044 bytes; una página de 25 registros transfiere 6.420 bytes y el resumen 75 bytes. El navegador también reutilizó estilos y código sin transferirlos de nuevo. Estas cifras describen la prueba local, no garantizan tiempos de respuesta en producción.
