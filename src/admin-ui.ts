@@ -10,6 +10,10 @@ export const adminCss = String.raw`@font-face{font-family:Instrument Sans;src:ur
 @media(max-width:1100px) and (min-width:761px){.shell{grid-template-columns:220px minmax(0,1fr)}main{padding:30px 24px}.sidebar{padding-inline:10px}.editor-layout{grid-template-columns:1fr}.editor-photo{min-height:220px}.editor-photo img{max-height:360px}.form-grid{gap:18px}}
 @media(max-width:760px){.shell{display:block}.sidebar{position:static;height:auto;padding:17px 20px;overflow:visible;display:block}.brand{padding:0}.brand strong{font-size:19px}.brand-mark{width:31px;height:31px}.sidebar-caption{display:none}.sidebar-user{display:none}.sidebar nav{position:fixed;inset:auto 0 0;z-index:30;margin:0;display:flex;flex-direction:row;align-items:stretch;gap:4px;overflow-x:auto;overscroll-behavior-x:contain;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:white;border-top:1px solid var(--line);scrollbar-width:none;box-shadow:0 -4px 18px #0e1f3306}.sidebar nav::-webkit-scrollbar{display:none}.sidebar nav button{flex:0 0 auto;min-width:75px;width:auto;min-height:59px;flex-direction:column;justify-content:center;gap:5px;color:#52656d;font-size:10px;padding:8px;border-radius:8px;white-space:nowrap}.sidebar nav button:last-child{margin-top:0}.sidebar nav button:hover{background:#f1f7f5;color:var(--accent)}.sidebar nav button.selected{background:var(--accent-soft);color:var(--accent)}.sidebar nav button.selected .ui-icon{color:var(--accent)}main{padding:24px 18px calc(110px + env(safe-area-inset-bottom))}.top{align-items:flex-start;gap:10px;margin-bottom:24px}.top h1{font-size:26px}.top small{font-size:12px}.top button{font-size:12px;padding:8px 10px;min-height:40px}.top button .ui-icon{width:16px;height:16px}.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.grid .card{padding:18px 14px;min-height:132px}.grid .card small{font-size:12px;max-width:80%;min-height:36px}.grid .card:first-child{grid-column:1/-1}.grid .card:first-child .stat{font-size:33px}.stat{font-size:24px;overflow-wrap:anywhere;margin-top:12px}.stat-icon{width:27px;height:27px;right:12px;top:15px}.stat-icon .ui-icon{width:15px;height:15px}.card{padding:20px;margin:16px 0}.form-grid{grid-template-columns:1fr;gap:17px}.actions{gap:8px}.actions button{flex:1}.scroll{border:0;background:transparent;overflow:visible;margin-top:16px}table,tbody{display:block;width:100%}thead{display:none}tbody tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;background:white;border:1px solid var(--line);border-radius:13px;padding:18px;margin-bottom:12px}tbody tr:hover{background:white}td,tbody tr:last-child td{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0;border:0;min-width:0;overflow-wrap:anywhere;font-size:13px}td::before{content:attr(data-label);color:#61746f;font-family:'Instrument Sans',system-ui,sans-serif;font-size:11px;font-weight:550;letter-spacing:.01em}td[data-label=Comercio],td[data-label=Acciones],td[data-label=Responsable],td[data-label=Referencia]{grid-column:1/-1}td[data-label=Comercio]{order:-1}.cell-ticket{font-size:15px}.cell-ticket>.ui-icon{width:31px;height:36px}td button{min-height:42px;font-size:12px}td>div:not(.cell-ticket){gap:8px;width:100%}td>div:not(.cell-ticket)>button{flex:1}td[data-label=Acciones]{padding-top:12px;border-top:1px solid #e9eeed}td[data-label=Imagen] a{min-height:32px;display:inline-flex;align-items:center}.ticket-toolbar{padding:16px;gap:12px}.ticket-toolbar input{min-width:0;flex-basis:100%;order:-1}.ticket-toolbar button{width:100%}.editor-layout{grid-template-columns:1fr;gap:22px}.editor-photo{min-height:230px;padding:16px}.editor-photo img{max-height:380px}.editor-layout .actions{position:static}.editor-layout .actions button{min-width:110px}.auth{display:block;background:#f8faf9;padding-bottom:30px;min-height:100dvh}.auth-brand{padding:28px 24px 22px;background:transparent;color:var(--navy)}.auth-brand::before,.auth-brand .receipt-art{display:none}.auth-brand .brand{margin:0 0 16px}.auth-brand h1{color:var(--navy);font-size:25px}.auth-brand>p{font-size:16px;color:var(--muted);margin:0;max-width:none}.auth-brand .brand-mark{width:35px;height:35px}.auth-content{padding:0 18px 24px;display:block}.auth .card{max-width:none;padding:25px 21px}.auth .card h2{font-size:23px}.auth .actions button{width:100%}#notice{bottom:calc(96px + env(safe-area-inset-bottom));right:16px;font-size:13px}.auth-view #notice{bottom:20px}.confirm-dialog{padding:24px}.confirm-dialog .actions button{flex:1}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+.top-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}.auth-content{position:relative}.auth-content>.theme-toggle{position:absolute;right:24px;top:20px}.image-link{padding:0;min-height:36px;background:transparent;color:var(--accent);text-decoration:underline;text-underline-offset:3px;font-weight:550}.image-link:hover{background:var(--accent-soft)}.editor-photo .image-link{color:#d5e5ed;padding:5px 12px}.image-viewer{position:fixed;inset:auto;margin:0;width:560px;height:650px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:inherit;box-shadow:0 18px 70px #0005;z-index:60;overflow:hidden;resize:both;min-width:280px;min-height:280px}.image-viewer[open]{display:flex;flex-direction:column}.viewer-header{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--line);cursor:move;touch-action:none;flex-shrink:0}.viewer-header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.viewer-header button{min-height:36px;padding:6px 12px}.viewer-header:focus-visible{outline:3px solid #63b5ac;outline-offset:-3px}.viewer-tools{display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;background:var(--surface);flex-shrink:0}.viewer-tools button{min-height:36px;padding:6px 13px}.viewer-percent{min-width:48px;text-align:center;font-variant-numeric:tabular-nums}.viewer-stage{position:relative;flex:1;min-height:0;background:#142a3f;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;cursor:grab}.viewer-stage:active{cursor:grabbing}.viewer-stage img{width:100%;height:100%;object-fit:contain;user-select:none;padding:14px;transform-origin:center}.viewer-status{position:absolute;padding:20px;color:#e4edf4;text-align:center;max-width:90%}
+:root[data-theme=dark]{color-scheme:dark;color:#e2eaf0;background:#101a25;--navy:#e2eaf0;--accent:#75d4c7;--accent-hover:#9de4da;--accent-soft:#183b3b;--surface:#192735;--line:#354655;--muted:#aebdc8;--red:#ffaaa1;--red-soft:#452b30;--amber:#f3cc84}
+[data-theme=dark] button{background:#207d75;color:#fff}[data-theme=dark] button:hover{background:#286f6b}[data-theme=dark] button.secondary{background:#213342;border-color:#526978;color:#e0ebf2}[data-theme=dark] button.secondary:hover{background:#2d4557}[data-theme=dark] button.danger{background:#963d3d;color:#fff}[data-theme=dark] button.danger-outline{background:#322a32;border-color:#91545a;color:#ffb2a9}[data-theme=dark] input,[data-theme=dark] select{background:#132330;border-color:#526978;color:#e2eaf0}[data-theme=dark] input::placeholder{color:#a5b5bf}[data-theme=dark] input[type=file]{background:#142c32}[data-theme=dark] input[type=file]::file-selector-button{background:#24484b;color:#a1e5dc}[data-theme=dark] .sidebar{background:#0c1622}[data-theme=dark] .scroll,[data-theme=dark] .ticket-toolbar{background:var(--surface)}[data-theme=dark] th{background:#203140;color:#b6c8d2;border-color:#354655}[data-theme=dark] td{color:#dce6ed;border-color:#304251}[data-theme=dark] tbody tr:hover{background:#203645}[data-theme=dark] .cell-ticket>.ui-icon{background:#263d48;color:#b1d3d8}[data-theme=dark] .stat-icon{background:#203b3c;border-color:#355b59}[data-theme=dark] .badge{background:#1c4237;color:#9ae5bd}[data-theme=dark] .badge.review{background:#493c25;color:#f5d38c}[data-theme=dark] .badge.off,[data-theme=dark] .badge.deleted{background:#4b2c32;color:#ffb2a9}[data-theme=dark] .warning{background:#352f23;border-color:#78603c}[data-theme=dark] .warning p{color:#e1cca4}[data-theme=dark] .codes{background:#132330}[data-theme=dark] .auth,[data-theme=dark] .auth-content{background:#101a25}[data-theme=dark] .auth-brand{background:#0c1622}[data-theme=dark] .confirm-dialog{color:#e2eaf0}[data-theme=dark] #notice{background:#284558;color:#f3f8fb}[data-theme=dark] .image-link{background:transparent;color:var(--accent)}[data-theme=dark] .image-link:hover{background:var(--accent-soft)}
+@media(max-width:760px){.top-controls{gap:7px;max-width:160px}.auth-content{padding-top:60px}.auth-content>.theme-toggle{top:0;right:18px}.image-viewer{width:calc(100vw - 24px);height:calc(100dvh - 24px);resize:none}.viewer-header{cursor:default}.viewer-tools button{min-height:44px}[data-theme=dark] .sidebar nav{background:#142432}[data-theme=dark] .sidebar nav button{background:transparent;color:#b8cbd5}[data-theme=dark] .sidebar nav button.selected{background:#234644;color:#9ee9df}[data-theme=dark] tbody tr{background:var(--surface)}[data-theme=dark] td::before{color:#aebdc8}[data-theme=dark] .auth-brand{background:transparent}[data-theme=dark] .auth-brand>p{color:var(--muted)}}
 `;
 
 export const adminJs = String.raw`
@@ -70,6 +74,107 @@ function icon(name) {
   }
   return svg;
 }
+const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+let savedTheme;
+try { savedTheme = localStorage.getItem('ticketslicy-theme'); } catch {}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.querySelectorAll('.theme-toggle').forEach(b => {
+    b.textContent = theme === 'dark' ? 'Modo claro' : 'Modo oscuro';
+    b.setAttribute('aria-pressed', String(theme === 'dark'));
+  });
+}
+applyTheme(savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : themeMedia.matches ? 'dark' : 'light');
+themeMedia.addEventListener('change', event => { if (!savedTheme) applyTheme(event.matches ? 'dark' : 'light'); });
+function themeButton() {
+  const b = button('', () => {
+    savedTheme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('ticketslicy-theme', savedTheme); } catch {}
+    applyTheme(savedTheme);
+  }, 'secondary theme-toggle');
+  const dark = document.documentElement.dataset.theme === 'dark';
+  b.textContent = dark ? 'Modo claro' : 'Modo oscuro';
+  b.setAttribute('aria-pressed', String(dark));
+  return b;
+}
+let closeImageViewer = () => {};
+function openImageViewer(ticket, trigger) {
+  closeImageViewer();
+  const viewer = node('dialog', undefined, 'image-viewer');
+  viewer.setAttribute('aria-label', 'Imagen del ticket: ' + ticket.comercio);
+  const header = node('div', undefined, 'viewer-header');
+  header.tabIndex = 0;
+  header.setAttribute('aria-label', 'Mover ventana: arrastra o usa las flechas del teclado');
+  header.append(node('strong', ticket.comercio));
+  const close = button('Cerrar', () => closeImageViewer(), 'secondary');
+  header.append(close);
+  const tools = node('div', undefined, 'viewer-tools');
+  const stage = node('div', undefined, 'viewer-stage');
+  const image = document.createElement('img');
+  image.alt = 'Ticket de ' + ticket.comercio;
+  image.draggable = false;
+  image.src = '/admin/api/tickets/' + encodeURIComponent(ticket.operationId) + '/image';
+  const status = node('span', 'Cargando imagen…', 'viewer-status');
+  status.setAttribute('role', 'status');
+  let scale = 1, x = 0, y = 0;
+  const draw = () => { image.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')'; percent.textContent = Math.round(scale * 100) + '%'; };
+  const zoom = amount => { scale = Math.max(1, Math.min(6, scale + amount)); if (scale === 1) x = y = 0; draw(); };
+  const minus = button('−', () => zoom(-0.25), 'secondary'); minus.setAttribute('aria-label', 'Reducir imagen');
+  const plus = button('+', () => zoom(0.25), 'secondary'); plus.setAttribute('aria-label', 'Ampliar imagen');
+  const percent = node('span', '100%', 'viewer-percent');
+  const fit = button('Ajustar', () => { scale = 1; x = y = 0; draw(); }, 'secondary');
+  tools.append(minus, percent, plus, fit);
+  stage.append(image, status);
+  image.onload = () => status.remove();
+  image.onerror = () => { status.textContent = 'No se pudo cargar la imagen. Cierra el visor y vuelve a intentarlo.'; image.remove(); };
+  viewer.append(header, tools, stage);
+  const controller = new AbortController();
+  const resizeObserver = new ResizeObserver(() => { const b = viewer.getBoundingClientRect(); move(b.left, b.top); });
+  resizeObserver.observe(viewer);
+  closeImageViewer = () => {
+    controller.abort(); resizeObserver.disconnect(); viewer.close(); viewer.remove();
+    if (trigger?.isConnected) trigger.focus();
+    closeImageViewer = () => {};
+  };
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !document.querySelector('.confirm-dialog[open]')) { event.preventDefault(); closeImageViewer(); }
+  }, {signal:controller.signal});
+  function move(left, top) {
+    viewer.style.left = Math.max(0, Math.min(left, innerWidth - viewer.offsetWidth)) + 'px';
+    viewer.style.top = Math.max(0, Math.min(top, innerHeight - viewer.offsetHeight)) + 'px';
+  }
+  header.addEventListener('pointerdown', event => {
+    if (event.target.closest('button') || event.button !== 0 || innerWidth <= 760) return;
+    const bounds = viewer.getBoundingClientRect(), startX = event.clientX, startY = event.clientY;
+    header.setPointerCapture(event.pointerId);
+    const drag = e => move(bounds.left + e.clientX - startX, bounds.top + e.clientY - startY);
+    header.addEventListener('pointermove', drag);
+    header.addEventListener('lostpointercapture', () => header.removeEventListener('pointermove', drag), {once:true});
+  });
+  header.addEventListener('keydown', event => {
+    if (event.target !== header || !['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return;
+    event.preventDefault(); const b = viewer.getBoundingClientRect();
+    move(b.left + (event.key === 'ArrowLeft' ? -20 : event.key === 'ArrowRight' ? 20 : 0), b.top + (event.key === 'ArrowUp' ? -20 : event.key === 'ArrowDown' ? 20 : 0));
+  });
+  stage.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || scale === 1) return;
+    stage.setPointerCapture(event.pointerId);
+    const startX = event.clientX - x, startY = event.clientY - y;
+    const pan = e => { const maxX = stage.clientWidth * (scale - 1) / 2, maxY = stage.clientHeight * (scale - 1) / 2; x = Math.max(-maxX, Math.min(maxX, e.clientX - startX)); y = Math.max(-maxY, Math.min(maxY, e.clientY - startY)); draw(); };
+    stage.addEventListener('pointermove', pan);
+    stage.addEventListener('lostpointercapture', () => stage.removeEventListener('pointermove', pan), {once:true});
+  });
+  window.addEventListener('resize', () => { const b = viewer.getBoundingClientRect(); move(b.left, b.top); }, {signal:controller.signal});
+  document.body.append(viewer);
+  viewer.show();
+  move((innerWidth - viewer.offsetWidth) / 2, Math.max(12, (innerHeight - viewer.offsetHeight) / 2));
+  close.focus();
+}
+function imageButton(ticket) {
+  const b = button('Ver imagen', () => openImageViewer(ticket, b), 'image-link');
+  return b;
+}
+
 function brand() {
   const row = node('div', undefined, 'brand'),
     mark = node('span', undefined, 'brand-mark');
@@ -295,6 +400,7 @@ function badge(active) {
   return node('span', active ? 'Activo' : 'Revocado', 'badge' + (active ? '' : ' off'));
 }
 async function auth(mode = 'login', status) {
+  closeImageViewer();
   root.replaceChildren();
   const outer = node('main', undefined, 'auth');
   document.body.classList.add('auth-view');
@@ -310,6 +416,7 @@ async function auth(mode = 'login', status) {
     receipt.append(node('div', undefined, 'receipt-line ' + kind));
   visual.append(receipt);
   const authContent = node('section', undefined, 'auth-content');
+  authContent.append(themeButton());
   outer.append(visual, authContent);
   const c = card(
     mode === 'setup'
@@ -461,8 +568,9 @@ async function render() {
     node('h1', titles[tab]),
     node('small', me.username + ' · ' + (me.role === 'admin' ? 'Administrador' : 'Usuario')),
   );
-  top.append(
-    heading,
+  const controls = node('div', undefined, 'top-controls');
+  controls.append(
+    themeButton(),
     button(
       'Cerrar sesión',
       async () => {
@@ -473,6 +581,7 @@ async function render() {
       'secondary',
     ),
   );
+  top.append(heading, controls);
   main.append(top);
   shell.append(side, main);
   root.append(shell);
@@ -898,10 +1007,7 @@ async function content(main) {
                 );
               let image = node('span', 'Pendiente de importar', 'muted');
               if (t.imageAvailable) {
-                image = node('a', 'Ver imagen');
-                image.href = '/admin/api/tickets/' + encodeURIComponent(t.operationId) + '/image';
-                image.target = '_blank';
-                image.rel = 'noopener noreferrer';
+                image = imageButton(t);
               }
               return [
                 t.fecha,
@@ -952,12 +1058,9 @@ function editTicket(main, t) {
   const layout = node('div', undefined, 'editor-layout'),
     preview = node('div', undefined, 'editor-photo');
   if (t.imageAvailable) {
-    const link = node('a', 'Ver imagen');
-    link.href = '/admin/api/tickets/' + encodeURIComponent(t.operationId) + '/image';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+    const link = imageButton(t);
     const image = document.createElement('img');
-    image.src = link.href;
+    image.src = '/admin/api/tickets/' + encodeURIComponent(t.operationId) + '/image';
     image.alt = t.comercio;
     image.onerror = () => preview.replaceChildren(icon('ticket'), link);
     preview.append(image, link);
